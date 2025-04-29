@@ -1,0 +1,52 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+ENV/
+env/
+.venv/
+pip-selfcheck.json
+
+# Flask instance folder (for config/database)
+instance/
+
+# Logs
+*.log
+
+# SQLite database files
+*.sqlite3
+*.db
+
+# VSCode settings
+.vscode/
+
+# MacOS system files
+.DS_Store
+
+# Python environment files
+*.env
+.env.*
+
+# PyInstaller
+*.spec
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+coverage.xml
+.cache
+nosetests.xml
+*.cover
+
+# MyPy
+.mypy_cache/
+
+# Pytest
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
