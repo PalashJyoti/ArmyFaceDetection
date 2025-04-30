@@ -17,6 +17,8 @@ const Signup = () => {
 
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
+    setError(null); // Clear previous error
+
     try {
       const res = await fetch('http://127.0.0.1:8080/api/auth/signup', {
         method: 'POST',
@@ -28,12 +30,18 @@ const Signup = () => {
         }),
       });
 
-      const data = await res.blob();
       if (res.ok) {
-        const qrUrl = URL.createObjectURL(data);
-        setQrCode(qrUrl); // Set the QR code to display
+        const qrBlob = await res.blob();
+        const qrUrl = URL.createObjectURL(qrBlob);
+        setQrCode(qrUrl);
+
+        // Optional: Redirect to login after 10 seconds
+        setTimeout(() => {
+          router.push('/login');
+        }, 10000);
       } else {
-        setError(data.error);
+        const errorData = await res.json();
+        setError(errorData.error || 'Signup failed');
       }
     } catch (err) {
       setError('Something went wrong. Please try again.');
@@ -98,8 +106,9 @@ const Signup = () => {
 
         {qrCode && (
           <div className="mt-6 text-center">
-            <p className="text-lg text-indigo-700 mb-4">Scan the QR code with your authentication app</p>
-            <img src={qrCode} alt="QR Code for TOTP" className="mx-auto w-40 h-40" />
+            <p className="text-lg text-indigo-700 mb-4">Scan this QR code with Google Authenticator</p>
+            <img src={qrCode} alt="TOTP QR Code" className="mx-auto w-40 h-40" />
+            <p className="text-sm text-gray-600 mt-2">Redirecting to login in 10 seconds...</p>
           </div>
         )}
 

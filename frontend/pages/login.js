@@ -47,10 +47,11 @@ const Login = () => {
 
       const data = await res.json();
 
-      if (res.ok) {
+      if (res.ok && data.token) {
+        localStorage.setItem('token', data.token); // Store JWT
         router.push('/dashboard'); // Navigate to dashboard after successful 2FA
       } else {
-        setError(data.error);
+        setError(data.error || 'Invalid TOTP');
       }
     } catch (err) {
       setError('Something went wrong. Please try again.');
