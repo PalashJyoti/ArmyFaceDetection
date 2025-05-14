@@ -1,9 +1,21 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '../components/navbar';
 
+import {
+  PieChart, Pie, Cell,
+  BarChart, Bar,
+  XAxis, YAxis, Tooltip,
+  LineChart, Line, Legend
+} from 'recharts';
+
 const Dashboard = () => {
   const router = useRouter();
+  const [isClient, setIsClient] = useState(false);
+
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
 
   const handleLogout = async () => {
     const token = localStorage.getItem('token');
@@ -33,87 +45,146 @@ const Dashboard = () => {
     }
   };
 
-  const detections = [
-    {
-      camera: 'Camera 1',
-      person: '/sad_person1.png',
-      timestamp: '2024-04-26 15:30:45',
-    },
-    {
-      camera: 'Camera 2',
-      person: '/sad_person2.png',
-      timestamp: '2024-04-26 16:20:10',
-    },
-    {
-      camera: 'Camera 3',
-      person: '/sad_person3.png',
-      timestamp: '2024-04-26 17:45:30',
-    },
+  const emotionColors = {
+    HAPPY: '#4ade80',
+    SAD: '#60a5fa',
+    NEUTRAL: '#9ca3af',
+  };
+
+  const mockProbabilities = [
+    { name: 'Happy', value: 70 },
+    { name: 'Sad', value: 20 },
+    { name: 'Neutral', value: 10 },
   ];
 
   return (
     <>
-      {/* Navbar */}
       <Navbar />
+      <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 p-6">
+        <h1 className="text-4xl font-bold text-center text-indigo-800 mb-10 tracking-tight">
+          Emotion Analysis Dashboard
+        </h1>
 
-      <div className="min-h-screen bg-gradient-to-r from-indigo-100 via-indigo-200 to-indigo-300 px-6 sm:px-12 py-8">
-        <div className="max-w-screen-xl mx-auto">
-          {/* Heading */}
-          <h1 className="text-5xl font-extrabold text-indigo-900 mb-12 text-center tracking-tight">
-            MindSight AI Dashboard
-          </h1>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto">
 
-          {/* Camera Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 mb-16">
-            {[1, 2, 3, 4].map((n) => (
-              <div
-                key={n}
-                className="bg-white border border-indigo-300 rounded-xl shadow-xl hover:shadow-2xl transition duration-300 ease-in-out transform hover:scale-105"
-              >
-                <div className="bg-indigo-700 text-white px-6 py-4 rounded-t-xl font-semibold text-lg">
-                  Camera {n}
-                </div>
-                <div className="h-52 bg-gradient-to-br from-indigo-100 to-gray-200 rounded-b-xl flex items-center justify-center text-gray-500 italic">
-                  Feed Not Available
-                </div>
+          {/* Column 1 */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h2 className="text-lg font-semibold text-indigo-700 mb-2">Current Emotional State</h2>
+              <div className="text-3xl font-bold flex items-center gap-2">
+                😊 Happy <span className="text-green-500 ml-2">(92%)</span>
               </div>
-            ))}
+              <div className="w-full h-2 bg-gray-200 rounded mt-3">
+                <div className="h-full bg-green-500 rounded" style={{ width: '92%' }} />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Live Video Feed</h3>
+              <div className="bg-gray-200 h-48 rounded-md flex items-center justify-center">
+                <span className="text-gray-500 italic">Live feed with facial landmarks</span>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Instantaneous Emotion Probabilities</h3>
+              {isClient && (
+                <BarChart width={300} height={150} data={mockProbabilities}>
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#8884d8" />
+                </BarChart>
+              )}
+            </div>
           </div>
 
-          {/* Detection Log */}
-          <div className="bg-white border border-rose-300 rounded-xl shadow-lg p-8">
-            <h2 className="text-3xl font-semibold text-rose-700 mb-8 text-center">Sad Detections Log</h2>
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm bg-white rounded-lg shadow-md">
-                <thead className="bg-rose-100 text-rose-700">
-                  <tr>
-                    <th className="p-4 text-left">Camera</th>
-                    <th className="p-4 text-left">Person Captured</th>
-                    <th className="p-4 text-left">Timestamp</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detections.map((entry, idx) => (
-                    <tr
-                      key={idx}
-                      className="border-t border-gray-200 hover:bg-rose-50 transition duration-300"
-                    >
-                      <td className="p-4">{entry.camera}</td>
-                      <td className="p-4">
-                        <img
-                          src={entry.person}
-                          alt="Detected"
-                          className="h-16 w-16 rounded-full border border-gray-300 object-cover"
-                        />
-                      </td>
-                      <td className="p-4">{entry.timestamp}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          {/* Column 2 */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Dominant Emotion Timeline</h3>
+              {isClient && (
+                <LineChart width={300} height={150} data={mockProbabilities}>
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Line type="monotone" dataKey="value" stroke="#6366f1" />
+                </LineChart>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Emotion Intensity Over Time</h3>
+              {isClient && (
+                <LineChart width={300} height={150} data={mockProbabilities}>
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="value" stroke="#22c55e" />
+                </LineChart>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6 flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-700">Time Range:</span>
+              <select className="ml-2 border border-gray-300 rounded px-2 py-1">
+                <option>Last 5 minutes</option>
+                <option>Last 30 minutes</option>
+                <option>Last Hour</option>
+                <option>Today</option>
+              </select>
+            </div>
+
+            {/* Moved Camera & Calibration Card */}
+            <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-600">
+              <p>Camera: <span className="text-green-600">Online</span></p>
+              <p>Calibration: <span className="text-blue-600">Active</span></p>
+            </div>
+          </div>
+
+          {/* Column 3 */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Overall Emotion Distribution</h3>
+              {isClient && (
+                <PieChart width={250} height={200}>
+                  <Pie
+                    data={mockProbabilities}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    outerRadius={60}
+                    label
+                  >
+                    {mockProbabilities.map((entry, index) => (
+                      <Cell key={`cell-${index}`} fill={emotionColors[entry.name.toUpperCase()] || '#8884d8'} />
+                    ))}
+                  </Pie>
+                </PieChart>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Average Emotion Intensity</h3>
+              {isClient && (
+                <BarChart width={300} height={150} data={mockProbabilities}>
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Bar dataKey="value" fill="#facc15" />
+                </BarChart>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6 space-y-2">
+              <button className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition">Export as CSV</button>
+              <button className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition">Export as JSON</button>
             </div>
           </div>
         </div>
+
+        
       </div>
     </>
   );

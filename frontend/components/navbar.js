@@ -45,7 +45,7 @@ const Navbar = () => {
             <span className="text-2xl font-bold tracking-wide">MindSight AI</span>
           </div>
           <div className="hidden md:flex space-x-6 text-lg">
-            <button onClick={() => navigate('/dashboard')} className={`transition ${isActive('/dashboard')}`}>Home</button>
+            <button onClick={() => navigate('/dashboard')} className={`transition ${isActive('/dashboard')}`}>Dashboard</button>
             <button onClick={() => navigate('/logs')} className={`transition ${isActive('/logs')}`}>Detection Logs</button>
             <button onClick={() => navigate('/admin')} className={`transition ${isActive('/admin')}`}>Admin Panel</button>
             <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 px-4 py-1.5 rounded-md transition">Logout</button>
@@ -65,7 +65,7 @@ const Navbar = () => {
 
         {isOpen && (
           <div className="md:hidden mt-2 space-y-2 pb-4">
-            <button onClick={() => navigate('/dashboard')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/dashboard')}`}>Home</button>
+            <button onClick={() => navigate('/dashboard')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/dashboard')}`}>Dashboard</button>
             <button onClick={() => navigate('/logs')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/logs')}`}>Detection Logs</button>
             <button onClick={() => navigate('/admin')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/admin')}`}>Admin Panel</button>
             <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-red-400 hover:bg-red-100">Logout</button>

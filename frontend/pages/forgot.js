@@ -2,45 +2,25 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import AuthNav from '@/components/authNav';
 
-const Login = () => {
+const ForgotPassword = () => {
   const [formData, setFormData] = useState({
     username: '',
-    password: '',
     totp: '',
+    newPassword: '',
   });
   const [error, setError] = useState(null);
   const [showTotpInput, setShowTotpInput] = useState(false);
+  const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
   const router = useRouter();
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleLoginSubmit = async (e) => {
+  const handleTotpVerification = async (e) => {
     e.preventDefault();
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, password: formData.password }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setShowTotpInput(true); // Show the TOTP input after successful login
-      } else {
-        setError(data.error);
-      }
-    } catch (err) {
-      setError('Something went wrong. Please try again.');
-    }
-  };
-
-  const handleTotpSubmit = async (e) => {
-    e.preventDefault();
-    try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/verify-totp', {
+      const res = await fetch('http://127.0.0.1:8080/api/auth/verify-totp-for-reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: formData.username, token: formData.totp }),
@@ -48,11 +28,32 @@ const Login = () => {
 
       const data = await res.json();
 
-      if (res.ok && data.token) {
-        localStorage.setItem('token', data.token); // Store JWT
-        router.push('/dashboard'); // Navigate to dashboard after successful 2FA
+      if (res.ok) {
+        setShowResetPasswordForm(true); // Show the reset password form
       } else {
         setError(data.error || 'Invalid TOTP');
+      }
+    } catch (err) {
+      setError('Something went wrong. Please try again.');
+    }
+  };
+
+  const handlePasswordResetSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch('http://127.0.0.1:8080/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: formData.username, newPassword: formData.newPassword }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        alert('Password reset successfully');
+        router.push('/login');
+      } else {
+        setError(data.error || 'Password reset failed');
       }
     } catch (err) {
       setError('Something went wrong. Please try again.');
@@ -63,11 +64,11 @@ const Login = () => {
     <div className="min-h-screen bg-indigo-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-md border border-indigo-200">
         <AuthNav/>
-        <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Login to MindSight AI</h2>
+        <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Forgot Password</h2>
 
         {error && <p className="text-red-600 text-center mb-4">{error}</p>}
 
-        <form onSubmit={handleLoginSubmit} className="space-y-5">
+        <form onSubmit={handleTotpVerification} className="space-y-5">
           <div>
             <label htmlFor="username" className="block text-sm font-medium text-indigo-700 mb-1">Username</label>
             <input
@@ -81,13 +82,13 @@ const Login = () => {
             />
           </div>
           <div>
-            <label htmlFor="password" className="block text-sm font-medium text-indigo-700 mb-1">Password</label>
+            <label htmlFor="totp" className="block text-sm font-medium text-indigo-700 mb-1">TOTP</label>
             <input
-              type="password"
-              id="password"
-              name="password"
+              type="number"
+              id="totp"
+              name="totp"
               required
-              value={formData.password}
+              value={formData.totp}
               onChange={handleChange}
               className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
             />
@@ -96,20 +97,20 @@ const Login = () => {
             type="submit"
             className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg"
           >
-            Log In
+            Verify TOTP
           </button>
         </form>
 
-        {showTotpInput && (
-          <form onSubmit={handleTotpSubmit} className="mt-6 space-y-5">
+        {showResetPasswordForm && (
+          <form onSubmit={handlePasswordResetSubmit} className="mt-6 space-y-5">
             <div>
-              <label htmlFor="totp" className="block text-sm font-medium text-indigo-700 mb-1">TOTP</label>
+              <label htmlFor="newPassword" className="block text-sm font-medium text-indigo-700 mb-1">New Password</label>
               <input
-                type="number"
-                id="totp"
-                name="totp"
+                type="password"
+                id="newPassword"
+                name="newPassword"
                 required
-                value={formData.totp}
+                value={formData.newPassword}
                 onChange={handleChange}
                 className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
               />
@@ -118,19 +119,17 @@ const Login = () => {
               type="submit"
               className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg"
             >
-              Verify TOTP
+              Reset Password
             </button>
           </form>
         )}
+
         <p className="text-sm text-center text-gray-600 mt-6">
-          <a href="/forgot" className="text-indigo-700 hover:underline">Forgor Password?</a>
-        </p>
-        <p className="text-sm text-center text-gray-600 mt-6">
-          Don't have an account? <a href="/signup" className="text-indigo-700 hover:underline">Sign up</a>
+          Remember your password? <a href="/login" className="text-indigo-700 hover:underline">Login</a>
         </p>
       </div>
     </div>
   );
 };
 
-export default Login;
+export default ForgotPassword;

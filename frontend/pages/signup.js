@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
+import AuthNav from '../components/authNav';
+
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -55,6 +57,7 @@ const Signup = () => {
   return (
     <div className="min-h-screen bg-indigo-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-md border border-indigo-200">
+        <AuthNav/>
         <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Sign Up for MindSight AI</h2>
 
         {error && <p className="text-red-600 text-center mb-4">{error}</p>}

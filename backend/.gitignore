@@ -50,3 +50,9 @@ nosetests.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints/
+
+#file
+*.mp4
+.mp4.*
+*.pth
+.pth.*
