@@ -45,7 +45,7 @@ def create_app():
 
             otp_uri = pyotp.totp.TOTP(totp_secret).provisioning_uri(
                 name=admin_username,
-                issuer_name="AdminPanel"
+                issuer_name="MindSightAI"
             )
 
             print("✅ Permanent admin created.")

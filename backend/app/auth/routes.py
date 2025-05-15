@@ -1,4 +1,5 @@
 from flask import Blueprint, request, jsonify, send_file
+from datetime import datetime, timezone, timedelta
 from functools import wraps
 from app import db
 from app.models import User
@@ -6,22 +7,24 @@ import pyotp
 import qrcode
 import io
 import jwt
-import datetime
+from pytz import timezone, utc
 
 auth_bp = Blueprint('auth', __name__)
-JWT_SECRET = 'your_jwt_secret_key'  # Keep this secret in production
+JWT_SECRET = 'your_jwt_secret_key'  # Replace this with a secure env var in production
 JWT_EXP_DELTA_SECONDS = 3600
 
-# In-memory blacklist (for demo; use DB or Redis in production)
+# In-memory blacklist (for demo)
 blacklisted_tokens = set()
 
-# JWT helper functions
+# --------------------
+# JWT Helper Functions
+# --------------------
 def create_jwt(user):
     payload = {
         'user_id': user.id,
         'username': user.username,
         'role': user.role,
-        'exp': datetime.datetime.utcnow() + datetime.timedelta(seconds=JWT_EXP_DELTA_SECONDS)
+        'exp': datetime.utcnow() + timedelta(seconds=JWT_EXP_DELTA_SECONDS)
     }
     return jwt.encode(payload, JWT_SECRET, algorithm='HS256')
 
@@ -33,7 +36,6 @@ def decode_jwt(token):
     except jwt.InvalidTokenError:
         return None
 
-# JWT-required decorator
 def jwt_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
@@ -53,7 +55,9 @@ def jwt_required(f):
         return f(*args, **kwargs)
     return decorated
 
-# Routes
+# ----------
+# Auth Routes
+# ----------
 
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
@@ -94,6 +98,10 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({'error': 'Invalid credentials'}), 401
 
+    # ✅ Set timezone-aware UTC datetime
+    user.last_login = datetime.utcnow().replace(tzinfo=timezone.utc)
+    db.session.commit()
+
     return jsonify({'message': '2FA required'}), 200
 
 @auth_bp.route('/verify-totp', methods=['POST'])
@@ -102,9 +110,16 @@ def verify_totp():
     username = data.get('username')
     token = data.get('token')
 
+    if not username or not token:
+        return jsonify({'error': 'Username and token are required'}), 400
+
     user = User.query.filter_by(username=username).first()
     if not user:
         return jsonify({'error': 'User not found'}), 404
+
+    # Log the secret and token for debugging purposes
+    print(f"User secret: {user.secret}")
+    print(f"Token received: {token}")
 
     totp = pyotp.TOTP(user.secret)
     if totp.verify(token):
@@ -147,6 +162,20 @@ def reset_password():
 
     return jsonify({'message': 'Password reset successfully'}), 200
 
+@auth_bp.route('/logout', methods=['POST'])
+def logout():
+    auth_header = request.headers.get('Authorization')
+    if not auth_header:
+        return jsonify({'error': 'Authorization header missing'}), 401
+
+    token = auth_header.replace('Bearer ', '')
+    blacklisted_tokens.add(token)
+    return jsonify({'message': 'Logged out successfully'}), 200
+
+# --------------------
+# Admin/User Management
+# --------------------
+
 @auth_bp.route('/change-role', methods=['POST'])
 @jwt_required
 def change_role():
@@ -170,25 +199,17 @@ def change_role():
 
     return jsonify({'message': f"Role for {username} changed to {new_role}"}), 200
 
-@auth_bp.route('/logout', methods=['POST'])
-def logout():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        return jsonify({'error': 'Authorization header missing'}), 401
-
-    token = auth_header.replace('Bearer ', '')
-    blacklisted_tokens.add(token)
-    return jsonify({'message': 'Logged out successfully'}), 200
-
 @auth_bp.route('/users', methods=['GET'])
 def get_users():
+    ist = timezone('Asia/Kolkata')
     users = User.query.all()
     return jsonify({
         'users': [
             {
                 'id': user.id,
                 'name': user.name,
-                'role': user.role
+                'role': user.role,
+                'last_login': user.last_login.replace(tzinfo=utc).astimezone(ist).strftime('%b %d, %Y, %I:%M %p') if user.last_login else None
             }
             for user in users
         ]
@@ -203,13 +224,18 @@ def add_user():
     if not name:
         return jsonify({'error': 'Name is required'}), 400
 
-    user = User(name=name, role=role, last_login=datetime.utcnow())
+    user = User(name=name, role=role)
     db.session.add(user)
     db.session.commit()
     return jsonify({'message': 'User added'}), 201
 
 @auth_bp.route('/users/delete/<int:user_id>', methods=['DELETE'])
+@jwt_required
 def delete_user(user_id):
+    current_user = User.query.get(request.user['user_id'])
+    if current_user.role != 'admin':
+        return jsonify({'error': 'Access denied. Admins only.'}), 403
+
     user = User.query.get(user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
@@ -218,20 +244,33 @@ def delete_user(user_id):
     db.session.commit()
     return jsonify({'message': 'User deleted'}), 200
 
-@auth_bp.route('/users/update-role/<int:user_id>', methods=['PUT'])
+@auth_bp.route('/users/<int:user_id>/role', methods=['PUT'])
+@jwt_required
 def update_role(user_id):
-    data = request.json
-    role = data.get('role')
-    if role not in ['admin', 'user']:
-        return jsonify({'error': 'Invalid role'}), 400
+    current_user = request.user
+
+    if current_user['role'] != 'admin':
+        return jsonify({'error': 'Access denied. Admins only.'}), 403
+
+    if user_id == current_user['user_id']:
+        return jsonify({'error': 'You cannot change your own role.'}), 403
 
     user = User.query.get(user_id)
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    user.role = role
+    data = request.json
+    new_role = data.get('role')
+    if not new_role:
+        return jsonify({'error': 'New role is required'}), 400
+
+    if new_role not in ['admin', 'user']:
+        return jsonify({'error': 'Invalid role specified'}), 400
+
+    user.role = new_role
     db.session.commit()
-    return jsonify({'message': 'Role updated'}), 200
+
+    return jsonify({'id': user.id, 'name': user.name, 'role': user.role})
 
 @auth_bp.route('/dashboard', methods=['GET'])
 @jwt_required
