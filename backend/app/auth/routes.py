@@ -1,24 +1,20 @@
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from app import db
+from app.extensions import db
 from app.models import User
 import pyotp
 import qrcode
 import io
 import jwt
-from pytz import timezone, utc
+from pytz import timezone as pytz_timezone, utc
 
 auth_bp = Blueprint('auth', __name__)
 JWT_SECRET = 'your_jwt_secret_key'  # Replace this with a secure env var in production
 JWT_EXP_DELTA_SECONDS = 3600
 
-# In-memory blacklist (for demo)
 blacklisted_tokens = set()
 
-# --------------------
-# JWT Helper Functions
-# --------------------
 def create_jwt(user):
     payload = {
         'user_id': user.id,
@@ -54,10 +50,6 @@ def jwt_required(f):
         request.user = payload
         return f(*args, **kwargs)
     return decorated
-
-# ----------
-# Auth Routes
-# ----------
 
 @auth_bp.route('/signup', methods=['POST'])
 def signup():
@@ -98,7 +90,6 @@ def login():
     if not user or not user.check_password(password):
         return jsonify({'error': 'Invalid credentials'}), 401
 
-    # ✅ Set timezone-aware UTC datetime
     user.last_login = datetime.utcnow().replace(tzinfo=timezone.utc)
     db.session.commit()
 
@@ -117,7 +108,6 @@ def verify_totp():
     if not user:
         return jsonify({'error': 'User not found'}), 404
 
-    # Log the secret and token for debugging purposes
     print(f"User secret: {user.secret}")
     print(f"Token received: {token}")
 
@@ -172,10 +162,6 @@ def logout():
     blacklisted_tokens.add(token)
     return jsonify({'message': 'Logged out successfully'}), 200
 
-# --------------------
-# Admin/User Management
-# --------------------
-
 @auth_bp.route('/change-role', methods=['POST'])
 @jwt_required
 def change_role():
@@ -201,7 +187,7 @@ def change_role():
 
 @auth_bp.route('/users', methods=['GET'])
 def get_users():
-    ist = timezone('Asia/Kolkata')
+    ist = pytz_timezone('Asia/Kolkata')
     users = User.query.all()
     return jsonify({
         'users': [

@@ -148,9 +148,8 @@ const AdminPanel = () => {
           {/*User Management*/}
           <section className="bg-white rounded-2xl shadow-xl p-8 border-t-4 border-indigo-500">
             <h2 className="text-2xl font-bold text-indigo-700 mb-4">User Management</h2>
-            <p className="text-gray-500 mb-6">Add, update, or remove users and manage their roles.</p>
 
-            <div className="flex flex-wrap gap-4 mb-6">
+            {/* <div className="flex flex-wrap gap-4 mb-6">
               <input
                 type="text"
                 value={newUserName}
@@ -172,7 +171,7 @@ const AdminPanel = () => {
               >
                 Add User
               </button>
-            </div>
+            </div> */}
 
             {isLoading ? (
               <Spinner />

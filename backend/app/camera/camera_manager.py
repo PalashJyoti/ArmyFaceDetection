@@ -43,3 +43,6 @@ class MultiCameraManager:
     def stop_all(self):
         for cam in self.cameras.values():
             cam.stop()
+
+camera_sources = ["app/camera/video.mp4"]  # Update with your actual camera sources
+camera_manager = MultiCameraManager(camera_sources)

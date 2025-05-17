@@ -1,4 +1,4 @@
-from flask import Blueprint, Response
+from flask import Blueprint, Response, jsonify, send_from_directory
 from app.camera import camera_manager
 from app.camera.camera_manager import MultiCameraManager
 from app.camera.model import predict_emotion
@@ -7,6 +7,9 @@ import time
 from collections import defaultdict
 import datetime
 import os  # ✅ Import for folder creation
+from app.models import DetectionLog, Camera
+from app.extensions import db
+from pytz import timezone as pytz_timezone, utc
 
 camera_bp = Blueprint('camera_feed', __name__)
 
@@ -55,6 +58,18 @@ def generate_frames(camera_id):
                             print(f"[ALERT] Saved screenshot: {filename}")
 
                             emotion_timer[face_id]['start'] = current_time
+
+                            # Fetch camera by ID
+                            camera = Camera.query.get(camera_id)
+                            if camera:
+                                log = DetectionLog(
+                                    camera_id=camera.id,
+                                    emotion=label,
+                                    timestamp=current_time,
+                                    image_path=filename
+                                )
+                                db.session.add(log)
+                                db.session.commit()
                 else:
                     if face_id in emotion_timer:
                         del emotion_timer[face_id]
@@ -111,3 +126,26 @@ def camera_feed(camera_id):
         generate_frames(camera_id),
         mimetype='multipart/x-mixed-replace; boundary=frame'
     )
+
+@camera_bp.route('/api/detection-logs', methods=['GET'])
+def get_detection_logs():
+    ist = pytz_timezone('Asia/Kolkata')
+    logs = DetectionLog.query.order_by(DetectionLog.timestamp.desc()).all()
+    result = []
+    for log in logs:
+        camera = Camera.query.get(log.camera_id)
+        result.append({
+            'id': log.id,
+            'camera_label': camera.label if camera else 'Unknown',
+            'emotion': log.emotion,
+            'timestamp': log.timestamp.replace(tzinfo=utc).astimezone(ist).strftime('%b %d, %Y, %I:%M %p') if log.timestamp else None,
+            'image_url': f"/{log.image_path}"
+        })
+    return jsonify(result)
+
+
+
+@camera_bp.route('/static/alerts/<path:filename>')
+def serve_alert_image(filename):
+    alerts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'alerts')
+    return send_from_directory(alerts_dir, filename)

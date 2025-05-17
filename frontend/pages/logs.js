@@ -4,24 +4,22 @@ import Navbar from '../components/navbar';
 const DetectionLogs = () => {
   const [logs, setLogs] = useState([]);
 
-  // Fetch logs from the Flask backend
   useEffect(() => {
-    fetch('http://localhost:5000/api/detection_logs')
+    fetch('http://localhost:8080/api/detection-logs')
       .then(res => res.json())
       .then(data => setLogs(data))
-      .catch((error) => console.error('Error fetching logs:', error));
+      .catch(error => console.error('Error fetching logs:', error));
   }, []);
 
   return (
     <>
       <Navbar />
-      <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 text-white px-6 py-10">
+      <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 px-6 py-10">
         <div className="max-w-7xl mx-auto">
           <h1 className="text-4xl font-extrabold mb-10 text-center text-indigo-800 tracking-tight">
             Detection Logs
           </h1>
 
-          {/* Logs Table */}
           <section className="mb-16">
             <h2 className="text-2xl font-bold mb-6 text-indigo-700">Log Overview</h2>
             <div className="overflow-x-auto bg-white rounded-xl shadow-lg">
@@ -29,9 +27,9 @@ const DetectionLogs = () => {
                 <thead className="bg-indigo-700 text-white">
                   <tr>
                     <th className="px-6 py-3">Timestamp</th>
+                    <th className="px-6 py-3">Camera</th>
                     <th className="px-6 py-3">Emotion</th>
-                    <th className="px-6 py-3">Confidence</th>
-                    <th className="px-6 py-3">Action</th>
+                    <th className="px-6 py-3">Screenshot</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -41,10 +39,19 @@ const DetectionLogs = () => {
                         key={index}
                         className="border-t border-gray-200 hover:bg-indigo-50 transition duration-300"
                       >
-                        <td className="px-6 py-4">{log.timestamp}</td>
-                        <td className="px-6 py-4">{log.emotion}</td>
-                        <td className="px-6 py-4">{log.confidence}</td>
-                        <td className="px-6 py-4">{log.action}</td>
+                        <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString()}</td>
+                        <td className="px-6 py-4">{log.camera_label}</td>
+                        <td className="px-6 py-4 capitalize">{log.emotion}</td>
+                        <td className="px-6 py-4">
+                          <a
+                            href={`http://localhost:8080${log.image_url}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-indigo-600 hover:underline"
+                          >
+                            View Image
+                          </a>
+                        </td>
                       </tr>
                     ))
                   ) : (

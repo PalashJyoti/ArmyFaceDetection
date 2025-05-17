@@ -1,28 +1,35 @@
-# app/__init__.py
-
 from flask import Flask
 from flask_cors import CORS
 import pyotp
-from .extensions import db  # Import db from extensions.py
-from .models import User
+from app.extensions import db
+import os
+from sqlalchemy import inspect
+from app.models import DetectionLog, Camera, User
+
+
+emotion_detectors = []
+
 
 def create_app():
     app = Flask(__name__)
     app.secret_key = 'your_secret_key'
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///users.db'
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
     CORS(app)
 
-    from .auth.routes import auth_bp
-    from .camera.routes import camera_bp
+    from app.auth.routes import auth_bp
+    from app.camera.routes import camera_bp
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(camera_bp)
 
     with app.app_context():
-        from . import models
+        # Now create all tables in the database
         db.create_all()
+
+        inspector = inspect(db.engine)
+        print(inspector.get_table_names())
 
         # Create Permanent Admin (if not exists)
         admin_username = 'admin'
@@ -53,4 +60,17 @@ def create_app():
         else:
             print("✅ Permanent admin already exists.")
 
+        # Start your other app-related initializations
+        start_emotion_threads(app)
+
     return app
+
+
+def start_emotion_threads(app):
+    from app.camera.camera_manager import camera_manager
+    from app.camera.emotion_worker import EmotionDetectorThread
+
+    model_path = os.path.abspath("app/camera/fer_model.pth")
+    for cam_id in camera_manager.cameras:
+        detector = EmotionDetectorThread(cam_id, model_path, app)
+        emotion_detectors.append(detector)

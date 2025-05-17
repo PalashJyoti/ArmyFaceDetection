@@ -125,6 +125,8 @@ def predict_emotion(frame, model_path):
     rgb = cv2.cvtColor(face, cv2.COLOR_BGR2RGB)
     tensor = torch.from_numpy(rgb).permute(2, 0, 1).unsqueeze(0).float() / 255.0
 
+    _model.eval()  # <- ensure eval mode before prediction
+
     with torch.no_grad():
         logits = _model(tensor)
         probs = torch.nn.functional.softmax(logits, dim=1).squeeze(0).numpy()
