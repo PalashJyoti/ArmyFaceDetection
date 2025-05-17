@@ -1,6 +1,8 @@
-from flask import Blueprint, Response, jsonify, send_from_directory, current_app
+from flask import Blueprint, Response, jsonify, send_from_directory, current_app, request
+from datetime import datetime, timedelta
 from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
 from app.models import DetectionLog, Camera
+from collections import defaultdict
 from app.extensions import db
 from pytz import timezone as pytz_timezone, utc
 import cv2
@@ -93,3 +95,62 @@ def serve_alert_image(filename):
 def get_cameras():
     cameras = Camera.query.all()
     return jsonify([camera.to_dict() for camera in cameras])
+
+
+@camera_bp.route('/api/detection-analytics', methods=['GET'])
+def get_detection_analytics():
+    ist = pytz_timezone('Asia/Kolkata')
+
+    # Handle time range filtering
+    time_range = request.args.get('range', '5m')
+    now_utc = datetime.utcnow().replace(tzinfo=utc)
+
+    if time_range == '5m':
+        since = now_utc - timedelta(minutes=5)
+    elif time_range == '30m':
+        since = now_utc - timedelta(minutes=30)
+    elif time_range == '1h':
+        since = now_utc - timedelta(hours=1)
+    elif time_range == 'today':
+        now_ist = now_utc.astimezone(ist)
+        since = now_ist.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(utc)
+    else:
+        since = now_utc - timedelta(minutes=5)  # Default fallback
+
+    # Fetch filtered logs
+    logs = DetectionLog.query.filter(DetectionLog.timestamp >= since).order_by(DetectionLog.timestamp.asc()).all()
+
+    # Pie chart aggregation
+    emotion_counts = {}
+    for log in logs:
+        emotion = log.emotion.upper()
+        emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+
+    pie_data = [{'name': k, 'value': v} for k, v in emotion_counts.items()]
+
+    # Timeline aggregation (5-minute buckets)
+    timeline_buckets = defaultdict(lambda: {'FEAR': 0, 'ANGER': 0, 'SADNESS': 0, 'DISGUST': 0})
+
+    def bucket_time(ts):
+        ts_ist = ts.replace(tzinfo=utc).astimezone(ist)
+        minute = (ts_ist.minute // 5) * 5
+        return ts_ist.replace(minute=minute, second=0, microsecond=0).strftime('%H:%M')
+
+    for log in logs:
+        if not log.timestamp:
+            continue
+        bucket = bucket_time(log.timestamp)
+        emotion = log.emotion.upper()
+        if emotion in timeline_buckets[bucket]:
+            timeline_buckets[bucket][emotion] += 1
+
+    timeline_data = []
+    for time_label in sorted(timeline_buckets.keys()):
+        data_point = {'time': time_label}
+        data_point.update(timeline_buckets[time_label])
+        timeline_data.append(data_point)
+
+    return jsonify({
+        'pie_data': pie_data,
+        'timeline_data': timeline_data,
+    })
