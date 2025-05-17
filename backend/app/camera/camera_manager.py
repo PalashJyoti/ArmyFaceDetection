@@ -1,6 +1,11 @@
 import cv2
 import threading
 import time
+from app.models import Camera, CameraStatus
+
+def get_active_camera_sources():
+    cameras = Camera.query.filter_by(status=CameraStatus.Active).all()
+    return [(cam.id, cam.src) for cam in cameras]
 
 class CameraStream:
     def __init__(self, src, camera_id):
@@ -32,8 +37,8 @@ class CameraStream:
 class MultiCameraManager:
     def __init__(self, camera_sources):
         self.cameras = {
-            i+1: CameraStream(src, i+1)
-            for i, src in enumerate(camera_sources)
+            cam_id: CameraStream(src, cam_id)
+            for cam_id, src in camera_sources
         }
 
     def get_frame(self, camera_id):
@@ -44,5 +49,17 @@ class MultiCameraManager:
         for cam in self.cameras.values():
             cam.stop()
 
-camera_sources = ["app/camera/video.mp4"]  # Update with your actual camera sources
-camera_manager = MultiCameraManager(camera_sources)
+# Initialize
+camera_manager = None  # Will be set in app initialization
+
+def get_camera_manager():
+    return camera_manager
+
+def set_camera_manager(manager):
+    global camera_manager
+    camera_manager = manager
+
+def init_camera_manager():
+    sources = get_active_camera_sources()
+    print(f'sources : {sources}')
+    set_camera_manager(MultiCameraManager(sources))

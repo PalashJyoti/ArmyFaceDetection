@@ -1,87 +1,16 @@
-from flask import Blueprint, Response, jsonify, send_from_directory
-from app.camera import camera_manager
-from app.camera.camera_manager import MultiCameraManager
-from app.camera.model import predict_emotion
-import cv2
-import time
-from collections import defaultdict
-import datetime
-import os  # ✅ Import for folder creation
+from flask import Blueprint, Response, jsonify, send_from_directory, current_app
+from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
 from app.models import DetectionLog, Camera
 from app.extensions import db
 from pytz import timezone as pytz_timezone, utc
+import cv2
+import os
+import time
+from app import emotion_detectors
 
 camera_bp = Blueprint('camera_feed', __name__)
 
-def generate_frames(camera_id):
-    model_path = "app/camera/fer_model.pth"
-    emotion_timer = defaultdict(lambda: {'start': None, 'emotion': None})
-    negative_emotions = {'fear', 'anger', 'sadness', 'disgust'}
-
-    target_width, target_height = 640, 360  # ✅ CCTV-like aspect ratio (16:9)
-
-    while True:
-        frame = camera_manager.get_frame(camera_id)
-        if frame is not None:
-            # Resize and pad frame to keep 16:9 ratio (letterboxing)
-            frame = resize_and_pad(frame, (target_width, target_height))
-
-            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            faces = cv2.CascadeClassifier(
-                cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-            ).detectMultiScale(gray, 1.3, 5)
-
-            for (x, y, w, h) in faces:
-                crop = frame[y:y+h, x:x+w]
-                label, conf = predict_emotion(crop, model_path)
-
-                # Draw box and label
-                cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
-                cv2.putText(frame, f"{label.upper()} ({conf:.2f})", (x, y - 15),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
-
-                face_id = (x, y, w, h)
-
-                if label in negative_emotions and conf > 0.5:
-                    current_time = datetime.datetime.now()
-                    if emotion_timer[face_id]['emotion'] != label:
-                        emotion_timer[face_id] = {'start': current_time, 'emotion': label}
-                    else:
-                        elapsed = (current_time - emotion_timer[face_id]['start']).total_seconds()
-                        if elapsed > 15:
-                            timestamp = current_time.strftime('%Y%m%d_%H%M%S')
-                            filename = f"alerts/alert_{label}_{timestamp}.jpg"
-                            face_image = frame[y:y+h, x:x+w]
-
-                            os.makedirs("alerts", exist_ok=True)  # ✅ Ensures folder exists
-                            cv2.imwrite(filename, face_image)
-                            print(f"[ALERT] Saved screenshot: {filename}")
-
-                            emotion_timer[face_id]['start'] = current_time
-
-                            # Fetch camera by ID
-                            camera = Camera.query.get(camera_id)
-                            if camera:
-                                log = DetectionLog(
-                                    camera_id=camera.id,
-                                    emotion=label,
-                                    timestamp=current_time,
-                                    image_path=filename
-                                )
-                                db.session.add(log)
-                                db.session.commit()
-                else:
-                    if face_id in emotion_timer:
-                        del emotion_timer[face_id]
-
-            _, buf = cv2.imencode('.jpg', frame)
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-        else:
-            time.sleep(0.1)
-
-
-# ✅ Helper function to resize and pad to CCTV-style (16:9) frame
+# Helper function for resizing with padding (16:9)
 def resize_and_pad(image, target_size):
     target_w, target_h = target_size
     h, w = image.shape[:2]
@@ -95,38 +24,49 @@ def resize_and_pad(image, target_size):
                                 cv2.BORDER_CONSTANT, value=[0, 0, 0])
     return padded
 
+# No hardcoded camera_sources here! The camera_manager should be initialized elsewhere
+# and already loaded cameras from the database on app start.
 
-# Set your video sources here
-camera_sources = [
-    "app/camera/video.mp4",
-    "app/camera/video.mp4"
-]
-camera_manager = MultiCameraManager(camera_sources)
-
-def generate(camera_id):
-    target_width, target_height = 640, 360  # ✅ Consistent aspect ratio for normal feed
-    while True:
-        frame = camera_manager.get_frame(camera_id)
-        if frame is not None:
-            frame = resize_and_pad(frame, (target_width, target_height))  # ✅ CCTV aspect
-            ret, buffer = cv2.imencode('.jpg', frame)
-            if ret:
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-        else:
-            continue
-
+# Raw feed route (no detection)
 @camera_bp.route('/video_feed/<int:camera_id>')
 def video_feed(camera_id):
-    return Response(generate(camera_id), mimetype='multipart/x-mixed-replace; boundary=frame')
+    def generate():
+        target_width, target_height = 640, 360
+        while True:
+            frame = get_camera_manager().get_frame(camera_id)
+            if frame is not None:
+                frame = resize_and_pad(frame, (target_width, target_height))
+                ret, buffer = cv2.imencode('.jpg', frame)
+                if ret:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            else:
+                time.sleep(0.1)
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+# Emotion-detected feed from background thread
 @camera_bp.route('/api/camera_feed/<int:camera_id>')
 def camera_feed(camera_id):
-    return Response(
-        generate_frames(camera_id),
-        mimetype='multipart/x-mixed-replace; boundary=frame'
-    )
+    camera_manager=get_camera_manager()
+    def generate():
+        detector = camera_manager.emotion_detectors.get(camera_id)
+        if detector is None:
+            yield (b'--frame\r\n'
+                   b'Content-Type: text/plain\r\n\r\nCamera not initialized\r\n\r\n')
+            return
 
+        while True:
+            frame = detector.get_latest_frame()
+            if frame is not None:
+                _, buf = cv2.imencode('.jpg', frame)
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
+            else:
+                time.sleep(0.1)
+
+    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+# Detection log API
 @camera_bp.route('/api/detection-logs', methods=['GET'])
 def get_detection_logs():
     ist = pytz_timezone('Asia/Kolkata')
@@ -143,9 +83,13 @@ def get_detection_logs():
         })
     return jsonify(result)
 
-
-
+# Serve alert screenshots
 @camera_bp.route('/static/alerts/<path:filename>')
 def serve_alert_image(filename):
     alerts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'alerts')
     return send_from_directory(alerts_dir, filename)
+
+@camera_bp.route('/api/cameras', methods=['GET'])
+def get_cameras():
+    cameras = Camera.query.all()
+    return jsonify([camera.to_dict() for camera in cameras])

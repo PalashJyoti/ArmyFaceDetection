@@ -4,11 +4,10 @@ import pyotp
 from app.extensions import db
 import os
 from sqlalchemy import inspect
-from app.models import DetectionLog, Camera, User
+from app.models import DetectionLog, Camera, User, CameraStatus
+from app.camera.camera_manager import init_camera_manager
 
-
-emotion_detectors = []
-
+emotion_detectors = {}
 
 def create_app():
     app = Flask(__name__)
@@ -25,13 +24,13 @@ def create_app():
     app.register_blueprint(camera_bp)
 
     with app.app_context():
-        # Now create all tables in the database
+        # Create all tables
         db.create_all()
 
         inspector = inspect(db.engine)
-        print(inspector.get_table_names())
+        print("📋 Tables:", inspector.get_table_names())
 
-        # Create Permanent Admin (if not exists)
+        # --- Create Permanent Admin (if not exists) ---
         admin_username = 'admin'
         admin_password = 'secureAdmin123'
 
@@ -56,21 +55,46 @@ def create_app():
             )
 
             print("✅ Permanent admin created.")
-            print(f"Scan this QR in Google Authenticator:\n{otp_uri}")
+            print(f"🔐 Scan this QR in Google Authenticator:\n{otp_uri}")
         else:
             print("✅ Permanent admin already exists.")
 
-        # Start your other app-related initializations
+        # --- Add test video camera (for development) ---
+        test_label = "Test Video Camera"
+        test_src = "app/camera/video.mp4"
+        test_ip = "127.0.0.1"  # dummy IP for required field
+
+        existing_camera = Camera.query.filter_by(label=test_label).first()
+        if not existing_camera:
+            test_camera = Camera(
+                label=test_label,
+                ip=test_ip,
+                src=test_src,
+                status=CameraStatus.Active
+            )
+            db.session.add(test_camera)
+            db.session.commit()
+            print(f"🎥 Test video camera added with src: {test_src}")
+        else:
+            print("🎥 Test video camera already exists.")
+
+        # --- Load cameras into camera_manager ---
+        init_camera_manager()  # Initializes the global camera_manager
+
+        # --- Start emotion detector threads ---
         start_emotion_threads(app)
 
     return app
 
 
 def start_emotion_threads(app):
-    from app.camera.camera_manager import camera_manager
+    from app.camera.camera_manager import get_camera_manager
     from app.camera.emotion_worker import EmotionDetectorThread
 
+    camera_manager=get_camera_manager()
     model_path = os.path.abspath("app/camera/fer_model.pth")
+    camera_manager.emotion_detectors = {}  # ✅ attach it to camera_manager
+
     for cam_id in camera_manager.cameras:
         detector = EmotionDetectorThread(cam_id, model_path, app)
-        emotion_detectors.append(detector)
+        camera_manager.emotion_detectors[cam_id] = detector

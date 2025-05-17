@@ -1,4 +1,3 @@
-// AdminPanel.jsx
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
 import axios from './api/axios';
@@ -6,18 +5,12 @@ import Spinner from '../components/spinner';
 
 const AdminPanel = () => {
   const [users, setUsers] = useState([]);
+  const [cameras, setCameras] = useState([]);
   const [newUserName, setNewUserName] = useState('');
   const [newUserRole, setNewUserRole] = useState('user');
   const [selectedCameraId, setSelectedCameraId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const cameras = Array.from({ length: 10 }, (_, i) => ({
-    id: i,
-    label: `Camera ${i + 1}`,
-    status: i % 3 === 0 ? 'Inactive' : 'Active',
-    ip: `192.168.0.10${i + 1}`,
-  }));
 
   useEffect(() => {
     const storedUser = localStorage.getItem('currentUser');
@@ -29,6 +22,7 @@ const AdminPanel = () => {
       }
     }
     fetchUsers();
+    fetchCameras();
   }, []);
 
   const fetchUsers = async () => {
@@ -41,6 +35,16 @@ const AdminPanel = () => {
       setUsers([]);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchCameras = async () => {
+    try {
+      const res = await axios.get('/api/cameras');
+      setCameras(res.data || []);
+    } catch (err) {
+      console.error('Failed to fetch cameras', err);
+      setCameras([]);
     }
   };
 
@@ -98,6 +102,7 @@ const AdminPanel = () => {
         <div className="max-w-7xl mx-auto space-y-16">
           <h1 className="text-4xl font-extrabold text-center text-indigo-800">Admin Control Panel</h1>
 
+          {/* Camera Overview */}
           <section className="bg-white rounded-2xl shadow-xl p-8 border-t-4 border-indigo-500">
             <h2 className="text-2xl font-bold text-indigo-700 mb-4">Camera Overview</h2>
             <p className="text-gray-500 mb-6">Select a camera to view its feed and status.</p>
@@ -118,9 +123,11 @@ const AdminPanel = () => {
             {selectedCameraId !== null && (
               <div className="bg-gray-50 rounded-xl p-6 shadow-inner">
                 <h3 className="text-xl font-semibold text-indigo-700 mb-2">
-                  {cameras[selectedCameraId].label}
+                  {cameras.find(cam => cam.id === selectedCameraId)?.label}
                 </h3>
-                <p className="text-sm text-gray-500 mb-3">IP: {cameras[selectedCameraId].ip}</p>
+                <p className="text-sm text-gray-500 mb-3">
+                  IP: {cameras.find(cam => cam.id === selectedCameraId)?.ip}
+                </p>
                 <div className="w-full max-w-md mx-auto">
                   <div className="relative w-full aspect-video bg-black rounded-lg mb-3 overflow-hidden">
                     <img
@@ -133,22 +140,22 @@ const AdminPanel = () => {
                 </div>
                 <span
                   className={`inline-block px-4 py-1 rounded-full text-sm font-medium text-white ${
-                    cameras[selectedCameraId].status === 'Active' ? 'bg-green-600' : 'bg-red-600'
+                    cameras.find(cam => cam.id === selectedCameraId)?.status === 'Active'
+                      ? 'bg-green-600'
+                      : 'bg-red-600'
                   }`}
                 >
-                  {cameras[selectedCameraId].status}
+                  {cameras.find(cam => cam.id === selectedCameraId)?.status}
                 </span>
               </div>
             )}
           </section>
-          {/*Camera Management*/}
-          
 
-
-          {/*User Management*/}
+          {/* User Management */}
           <section className="bg-white rounded-2xl shadow-xl p-8 border-t-4 border-indigo-500">
             <h2 className="text-2xl font-bold text-indigo-700 mb-4">User Management</h2>
 
+            {/* Uncomment this if you want to enable Add User Form */}
             {/* <div className="flex flex-wrap gap-4 mb-6">
               <input
                 type="text"
