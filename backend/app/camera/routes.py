@@ -1,13 +1,14 @@
 from flask import Blueprint, Response, jsonify, send_from_directory, current_app, request
 from datetime import datetime, timedelta
 from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
-from app.models import DetectionLog, Camera
+from app.models import DetectionLog, Camera, CameraStatus
 from collections import defaultdict
 from app.extensions import db
 from pytz import timezone as pytz_timezone, utc
 import cv2
 import os
 import time
+from sqlalchemy.exc import IntegrityError
 from app import emotion_detectors
 
 camera_bp = Blueprint('camera_feed', __name__)
@@ -285,3 +286,98 @@ def get_detection_analytics():
         'total_detections': total,
         'avg_intensity': avg_intensity
     })
+
+@camera_bp.route('/<int:camera_id>', methods=['GET'])
+def get_camera(camera_id):
+    camera = Camera.query.get(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+    return jsonify(camera.to_dict()), 200
+
+
+@camera_bp.route('/api/cameras/add', methods=['POST'])
+def create_camera():
+    data = request.json
+    required_fields = ['label', 'ip', 'src']
+    if not all(field in data for field in required_fields):
+        return jsonify({'error': 'Missing required fields'}), 400
+
+    try:
+        camera = Camera(
+            label=data['label'],
+            ip=data['ip'],
+            src=data['src'],
+            status=CameraStatus[data.get('status', 'Inactive')]
+        )
+        db.session.add(camera)
+        db.session.commit()
+        return jsonify(camera.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error adding camera: {e}")  # Log error on backend console
+        return jsonify({'error': str(e)}), 400
+
+
+@camera_bp.route('/api/cameras/delete/<int:camera_id>', methods=['DELETE'])
+def delete_camera(camera_id):
+    camera = Camera.query.get(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    db.session.delete(camera)
+    db.session.commit()
+    return jsonify({'message': 'Camera deleted successfully'}), 200
+
+
+@camera_bp.route('/<int:camera_id>/status', methods=['PATCH'])
+def update_camera_status(camera_id):
+    camera = Camera.query.get(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    data = request.json
+    try:
+        camera.status = CameraStatus[data['status']]
+    except KeyError:
+        return jsonify({'error': 'Invalid status'}), 400
+
+    db.session.commit()
+    return jsonify({'message': f'Status updated to {camera.status.value}'}), 200
+
+
+@camera_bp.route('/api/cameras/update/<int:camera_id>', methods=['PUT'])
+def update_camera(camera_id):
+    data = request.get_json()
+
+    if not data:
+        return jsonify({'error': 'No input data provided'}), 400
+
+    # Validate required fields
+    label = data.get('label')
+    ip = data.get('ip')
+    status = data.get('status')
+
+    if not label or not ip or not status:
+        return jsonify({'error': 'label, ip, and status are required'}), 400
+
+    if status not in CameraStatus.__members__ and status not in [e.value for e in CameraStatus]:
+        return jsonify({'error': f'Invalid status value. Must be one of {[e.value for e in CameraStatus]}'}), 400
+
+    camera = Camera.query.get(camera_id)
+    if not camera:
+        return jsonify({'error': 'Camera not found'}), 404
+
+    # Update fields
+    camera.label = label
+    camera.ip = ip
+    camera.status = CameraStatus(status) if isinstance(status, str) else status
+
+    try:
+        db.session.commit()
+        return jsonify(camera.to_dict()), 200
+    except IntegrityError as e:
+        db.session.rollback()
+        return jsonify({'error': 'Label or IP must be unique, conflict detected'}), 409
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to update camera'}), 500

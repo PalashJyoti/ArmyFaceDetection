@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
 import axios from './api/axios';
 import Spinner from '../components/spinner';
+import CameraRow from '@/components/cameraRow';
 
 const AdminPanel = () => {
   const [users, setUsers] = useState([]);
@@ -11,6 +12,11 @@ const AdminPanel = () => {
   const [selectedCameraId, setSelectedCameraId] = useState(null);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  const [newCameraLabel, setNewCameraLabel] = useState('');
+  const [newCameraIP, setNewCameraIP] = useState('');
+  const [newCameraSrc, setNewCameraSrc] = useState('');
+  const [isCameraLoading, setIsCameraLoading] = useState(true);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('currentUser');
@@ -39,12 +45,59 @@ const AdminPanel = () => {
   };
 
   const fetchCameras = async () => {
+    setIsCameraLoading(true);
     try {
       const res = await axios.get('/api/cameras');
-      setCameras(res.data || []);
-    } catch (err) {
-      console.error('Failed to fetch cameras', err);
+      setCameras(res.data);
+    } catch (error) {
+      console.error('Error fetching cameras:', error);
       setCameras([]);
+    } finally {
+      setIsCameraLoading(false);
+    }
+  };
+
+  const addCamera = async () => {
+    if (!newCameraLabel.trim() || !newCameraIP.trim() || !newCameraSrc.trim()) return;
+
+    try {
+      const res = await axios.post('/api/cameras/add', {
+        label: newCameraLabel.trim(),
+        ip: newCameraIP.trim(),
+        src: newCameraSrc.trim(),
+      });
+      setCameras((prev) => [...prev, res.data]);
+      setNewCameraLabel('');
+      setNewCameraIP('');
+      setNewCameraSrc('');
+    } catch (err) {
+      console.error('Failed to add camera', err);
+      alert('Failed to add camera. Please check inputs and try again.');
+    }
+  };
+
+  const deleteCamera = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this camera?')) return;
+
+    try {
+      await axios.delete(`/api/cameras/delete/${id}`);
+      setCameras((prev) => prev.filter((cam) => cam.id !== id));
+      if (selectedCameraId === id) setSelectedCameraId(null);
+    } catch (err) {
+      console.error('Failed to delete camera', err);
+      alert('Failed to delete camera. Please try again.');
+    }
+  };
+
+  const updateCamera = async (updatedCamera) => {
+    try {
+      const res = await axios.put(`/api/cameras/update/${updatedCamera.id}`, updatedCamera);
+      setCameras((prev) =>
+        prev.map((cam) => (cam.id === updatedCamera.id ? res.data : cam))
+      );
+    } catch (err) {
+      console.error('Failed to update camera', err);
+      alert('Failed to update camera. Please try again.');
     }
   };
 
@@ -139,17 +192,85 @@ const AdminPanel = () => {
                   </div>
                 </div>
                 <span
-                  className={`inline-block px-4 py-1 rounded-full text-sm font-medium text-white ${
-                    cameras.find(cam => cam.id === selectedCameraId)?.status === 'Active'
-                      ? 'bg-green-600'
-                      : 'bg-red-600'
-                  }`}
+                  className={`inline-block px-4 py-1 rounded-full text-sm font-medium text-white ${cameras.find(cam => cam.id === selectedCameraId)?.status === 'Active'
+                    ? 'bg-green-600'
+                    : 'bg-red-600'
+                    }`}
                 >
                   {cameras.find(cam => cam.id === selectedCameraId)?.status}
                 </span>
               </div>
             )}
           </section>
+
+          {/* Camera Management */}
+          <section className="bg-white rounded-2xl shadow-xl p-8 border-t-4 border-indigo-500">
+            <h2 className="text-2xl font-bold text-indigo-700 mb-4">Camera Management</h2>
+
+            {/* Add Camera Form */}
+            <div className="mb-6">
+              <h3 className="font-semibold text-indigo-700 mb-2">Add New Camera</h3>
+              <div className="flex flex-col sm:flex-row gap-3 max-w-xl">
+                <input
+                  type="text"
+                  placeholder="Label"
+                  value={newCameraLabel}
+                  onChange={(e) => setNewCameraLabel(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 flex-1"
+                />
+                <input
+                  type="text"
+                  placeholder="IP Address"
+                  value={newCameraIP}
+                  onChange={(e) => setNewCameraIP(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 flex-1"
+                />
+                <input
+                  type="text"
+                  placeholder="Source URL"
+                  value={newCameraSrc}
+                  onChange={(e) => setNewCameraSrc(e.target.value)}
+                  className="border border-gray-300 rounded-md px-3 py-2 flex-1"
+                />
+                <button
+                  onClick={addCamera}
+                  className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 transition"
+                >
+                  Add Camera
+                </button>
+              </div>
+            </div>
+
+            {isCameraLoading ? (
+              <Spinner />
+            ) : (
+              <div className="overflow-x-auto rounded-xl shadow-lg">
+                <table className="min-w-full text-sm text-left text-gray-700">
+                  <thead className="bg-indigo-700 text-white">
+                    <tr>
+                      <th className="px-6 py-3">Camera ID</th>
+                      <th className="px-6 py-3">Label</th>
+                      <th className="px-6 py-3">IP Address</th>
+                      <th className="px-6 py-3">Status</th>
+                      <th className="px-6 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Array.isArray(cameras) && cameras.map((cam, i) => (
+                      <CameraRow
+                        key={cam.id}
+                        camera={cam}
+                        index={i}
+                        onDelete={deleteCamera}
+                        onUpdate={updateCamera}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
 
           {/* User Management */}
           <section className="bg-white rounded-2xl shadow-xl p-8 border-t-4 border-indigo-500">
