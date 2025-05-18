@@ -3,12 +3,19 @@ import Navbar from '../components/navbar';
 
 const DetectionLogs = () => {
   const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(true); // New loading state
 
   useEffect(() => {
     fetch('http://localhost:8080/api/detection-logs')
       .then(res => res.json())
-      .then(data => setLogs(data))
-      .catch(error => console.error('Error fetching logs:', error));
+      .then(data => {
+        setLogs(data);
+        setLoading(false); // Set loading to false after data is fetched
+      })
+      .catch(error => {
+        console.error('Error fetching logs:', error);
+        setLoading(false); // Even on error, stop loading
+      });
   }, []);
 
   return (
@@ -23,46 +30,52 @@ const DetectionLogs = () => {
           <section className="mb-16">
             <h2 className="text-2xl font-bold mb-6 text-indigo-700">Log Overview</h2>
             <div className="overflow-x-auto bg-white rounded-xl shadow-lg">
-              <table className="min-w-full text-sm text-left text-gray-800">
-                <thead className="bg-indigo-700 text-white">
-                  <tr>
-                    <th className="px-6 py-3">Timestamp</th>
-                    <th className="px-6 py-3">Camera</th>
-                    <th className="px-6 py-3">Emotion</th>
-                    <th className="px-6 py-3">Screenshot</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logs.length > 0 ? (
-                    logs.map((log, index) => (
-                      <tr
-                        key={index}
-                        className="border-t border-gray-200 hover:bg-indigo-50 transition duration-300"
-                      >
-                        <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString()}</td>
-                        <td className="px-6 py-4">{log.camera_label}</td>
-                        <td className="px-6 py-4 capitalize">{log.emotion}</td>
-                        <td className="px-6 py-4">
-                          <a
-                            href={`http://localhost:8080${log.image_url}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-indigo-600 hover:underline"
-                          >
-                            View Image
-                          </a>
+              {loading ? (
+                <div className="text-center py-10 text-indigo-600 font-semibold text-lg">
+                  Loading...
+                </div>
+              ) : (
+                <table className="min-w-full text-sm text-left text-gray-800">
+                  <thead className="bg-indigo-700 text-white">
+                    <tr>
+                      <th className="px-6 py-3">Timestamp</th>
+                      <th className="px-6 py-3">Camera</th>
+                      <th className="px-6 py-3">Emotion</th>
+                      <th className="px-6 py-3">Screenshot</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {logs.length > 0 ? (
+                      logs.map((log, index) => (
+                        <tr
+                          key={index}
+                          className="border-t border-gray-200 hover:bg-indigo-50 transition duration-300"
+                        >
+                          <td className="px-6 py-4">{new Date(log.timestamp).toLocaleString()}</td>
+                          <td className="px-6 py-4">{log.camera_label}</td>
+                          <td className="px-6 py-4 capitalize">{log.emotion}</td>
+                          <td className="px-6 py-4">
+                            <a
+                              href={`http://localhost:8080${log.image_url}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-indigo-600 hover:underline"
+                            >
+                              View Image
+                            </a>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan="4" className="px-6 py-4 text-center text-gray-400">
+                          No detection logs available
                         </td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan="4" className="px-6 py-4 text-center text-gray-400">
-                        No detection logs available
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
           </section>
         </div>
