@@ -1,9 +1,27 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
+import { jwtDecode } from 'jwt-decode';
+
 
 const Navbar = () => {
+  const [user, setUser] = useState(null);
   const [isOpen, setIsOpen] = useState(false);
   const router = useRouter();
+
+  useEffect(() => {
+    if (typeof window !== "undefined") { // make sure we're client side
+      const token = localStorage.getItem('token');
+      if (token) {
+        try {
+          const decodedUser = jwtDecode(token);
+          setUser(decodedUser);
+        } catch (error) {
+          console.error("Invalid token:", error);
+          setUser(null);
+        }
+      }
+    }
+  }, []);
 
   const handleLogout = async () => {
     const token = localStorage.getItem('token');
@@ -46,8 +64,8 @@ const Navbar = () => {
           </div>
           <div className="hidden md:flex space-x-6 text-lg">
             <button onClick={() => navigate('/dashboard')} className={`transition ${isActive('/dashboard')}`}>Dashboard</button>
-            <button onClick={() => navigate('/logs')} className={`transition ${isActive('/logs')}`}>Detection Logs</button>
-            <button onClick={() => navigate('/admin')} className={`transition ${isActive('/admin')}`}>Admin Panel</button>
+            {user?.role === "admin" && (<button onClick={() => navigate('/logs')} className={`transition ${isActive('/logs')}`}>Detection Logs</button>)}
+            {user?.role === "admin" && (<button onClick={() => navigate('/admin')} className={`transition ${isActive('/admin')}`}>Admin Panel</button>)}
             <button onClick={handleLogout} className="bg-red-500 hover:bg-red-600 px-4 py-1.5 rounded-md transition">Logout</button>
           </div>
           <div className="md:hidden">
@@ -65,10 +83,25 @@ const Navbar = () => {
 
         {isOpen && (
           <div className="md:hidden mt-2 space-y-2 pb-4">
-            <button onClick={() => navigate('/dashboard')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/dashboard')}`}>Dashboard</button>
-            <button onClick={() => navigate('/logs')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/logs')}`}>Detection Logs</button>
-            <button onClick={() => navigate('/admin')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/admin')}`}>Admin Panel</button>
-            <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-red-400 hover:bg-red-100">Logout</button>
+            <button onClick={() => navigate('/dashboard')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/dashboard')}`}>
+              Dashboard
+            </button>
+
+            {user?.role === "admin" && (
+              <button onClick={() => navigate('/logs')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/logs')}`}>
+                Detection Logs
+              </button>
+            )}
+
+            {user?.role === "admin" && (
+              <button onClick={() => navigate('/admin')} className={`block w-full text-left px-4 py-2 hover:bg-indigo-600 ${isActive('/admin')}`}>
+                Admin Panel
+              </button>
+            )}
+
+            <button onClick={handleLogout} className="block w-full text-left px-4 py-2 text-red-400 hover:bg-red-100">
+              Logout
+            </button>
           </div>
         )}
       </div>

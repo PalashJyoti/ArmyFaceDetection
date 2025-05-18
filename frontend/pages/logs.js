@@ -1,20 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
+import axios from '../pages/api/axios'
+
 
 const DetectionLogs = () => {
   const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true); // New loading state
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetch('http://localhost:8080/api/detection-logs')
-      .then(res => res.json())
-      .then(data => {
-        setLogs(data);
-        setLoading(false); // Set loading to false after data is fetched
+    axios.get('/api/detection-logs')
+      .then(response => {
+        setLogs(response.data);
+        setLoading(false);
       })
       .catch(error => {
         console.error('Error fetching logs:', error);
-        setLoading(false); // Even on error, stop loading
+        setLoading(false);
       });
   }, []);
 

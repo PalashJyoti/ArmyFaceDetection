@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '../components/navbar';
-import axios from './api/axios';
+import axios from '../pages/api/axios';
 
 import {
   Sector, PieChart, Pie, Cell,

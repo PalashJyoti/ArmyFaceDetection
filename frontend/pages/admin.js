@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
-import axios from './api/axios';
+import axios from '../pages/api/axios'
 import Spinner from '../components/spinner';
 import CameraRow from '@/components/cameraRow';
 

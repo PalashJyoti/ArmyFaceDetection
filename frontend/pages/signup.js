@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import AuthNav from '../components/authNav';
 
-
 const Signup = () => {
   const [formData, setFormData] = useState({
     name: '',
@@ -11,6 +10,7 @@ const Signup = () => {
   });
   const [error, setError] = useState(null);
   const [qrCode, setQrCode] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const router = useRouter();
 
   const handleChange = (e) => {
@@ -19,15 +19,16 @@ const Signup = () => {
 
   const handleSignupSubmit = async (e) => {
     e.preventDefault();
-    setError(null); // Clear previous error
+    setError(null);
+    setSubmitting(true);
 
     try {
       const res = await fetch('http://127.0.0.1:8080/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          username: formData.username,
-          name: formData.name,
+          username: formData.username.trim(),
+          name: formData.name.trim(),
           password: formData.password,
         }),
       });
@@ -37,16 +38,30 @@ const Signup = () => {
         const qrUrl = URL.createObjectURL(qrBlob);
         setQrCode(qrUrl);
 
-        // Optional: Redirect to login after 10 seconds
         setTimeout(() => {
           router.push('/login');
         }, 10000);
       } else {
-        const errorData = await res.json();
-        setError(errorData.error || 'Signup failed');
+        let message = 'Signup failed.';
+        try {
+          const errorData = await res.json();
+          if (res.status === 409) {
+            message = errorData.error || 'Username already exists.';
+          } else if (res.status === 400) {
+            message = errorData.error || 'Invalid request.';
+          } else {
+            message = errorData.error || `Error: ${res.status}`;
+          }
+        } catch (parseErr) {
+          console.error('Failed to parse error response:', parseErr);
+        }
+        setError(message);
       }
     } catch (err) {
-      setError('Something went wrong. Please try again.');
+      console.error('Network or unexpected error:', err);
+      setError('Something went wrong. Please check your connection and try again.');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -57,7 +72,7 @@ const Signup = () => {
   return (
     <div className="min-h-screen bg-indigo-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-md border border-indigo-200">
-        <AuthNav/>
+        <AuthNav />
         <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Sign Up for MindSight AI</h2>
 
         {error && <p className="text-red-600 text-center mb-4">{error}</p>}
@@ -101,9 +116,10 @@ const Signup = () => {
           </div>
           <button
             type="submit"
-            className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg"
+            disabled={submitting}
+            className={`w-full py-2.5 font-medium rounded-lg text-white ${submitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-700 hover:bg-indigo-800'}`}
           >
-            Sign Up
+            {submitting ? 'Signing Up...' : 'Sign Up'}
           </button>
         </form>
 
