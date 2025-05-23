@@ -50,51 +50,62 @@ function Index() {
 
   const [showModal, setShowModal] = useState(false);
 
-  const handleOptionClick = async (option) => {
-    setShowModal(false);
+ const handleOptionClick = async (option) => {
+  setShowModal(false);
 
-    if (option === "webcam") {
-      console.log("Webcam selected");
+  if (option === "webcam") {
+    console.log("Webcam selected");
 
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        const video = document.createElement("video");
-        video.srcObject = stream;
-        await video.play();
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const hasWebcam = devices.some(
+        (device) => device.kind === "videoinput"
+      );
 
-        const canvas = document.createElement("canvas");
-        canvas.width = 64;
-        canvas.height = 64;
-        const ctx = canvas.getContext("2d");
-
-        setTimeout(async () => {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const base64Image = canvas.toDataURL("image/jpeg");
-
-          const response = await axios.post("/api/emotion-detect", { image: base64Image });
-
-          // Stop webcam
-          stream.getTracks().forEach(track => track.stop());
-
-          // Redirect with query parameters
-          router.push({
-            pathname: "/emotion",
-            query: {
-              label: response.data.label,
-              confidence: response.data.confidence
-            }
-          });
-        }, 1000);
-      } catch (err) {
-        console.error("Webcam error:", err);
+      if (!hasWebcam) {
+        alert("No webcam found on this device.");
+        return;
       }
-    }
-    if (option === "upload") {
-      router.push("/videoemotion");
-    }
 
-    // (Same thing for "upload", if needed)
-  };
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const video = document.createElement("video");
+      video.srcObject = stream;
+      await video.play();
+
+      const canvas = document.createElement("canvas");
+      canvas.width = 64;
+      canvas.height = 64;
+      const ctx = canvas.getContext("2d");
+
+      setTimeout(async () => {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const base64Image = canvas.toDataURL("image/jpeg");
+
+        const response = await axios.post("/api/emotion-detect", { image: base64Image });
+
+        // Stop webcam
+        stream.getTracks().forEach((track) => track.stop());
+
+        // Redirect with query parameters
+        router.push({
+          pathname: "/emotion",
+          query: {
+            label: response.data.label,
+            confidence: response.data.confidence,
+          },
+        });
+      }, 1000);
+    } catch (err) {
+      console.error("Webcam error:", err);
+      alert("Error accessing webcam. Please check your browser permissions.");
+    }
+  }
+
+  if (option === "upload") {
+    router.push("/videoemotion");
+  }
+};
+
 
 
 
