@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { jwtDecode } from 'jwt-decode';
+import axios from '@/pages/api/axios';
 
 
 const Navbar = () => {
@@ -27,22 +28,21 @@ const Navbar = () => {
     const token = localStorage.getItem('token');
 
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/logout', {
-        method: 'POST',
+      const res = await axios.post('/api/auth/logout', null, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
-      if (res.ok) {
-        localStorage.removeItem('token');
-        router.push('/login');
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Logout failed');
-      }
+      // If successful, remove token and redirect
+      localStorage.removeItem('token');
+      router.push('/login');
     } catch (err) {
-      alert('Network error during logout');
+      if (err.response && err.response.data) {
+        alert(err.response.data.error || 'Logout failed');
+      } else {
+        alert('Network error during logout');
+      }
     }
   };
 

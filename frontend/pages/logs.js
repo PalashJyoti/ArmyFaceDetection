@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
-import axios from '../pages/api/axios'
+import axios from '@/pages/api/axios';
 
 
 const DetectionLogs = () => {
@@ -57,7 +57,7 @@ const DetectionLogs = () => {
                           <td className="px-6 py-4 capitalize">{log.emotion}</td>
                           <td className="px-6 py-4">
                             <a
-                              href={`http://localhost:8080${log.image_url}`}
+                              href={`${process.env.NEXT_PUBLIC_API_BASE_URL}${log.image_url}`}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="text-indigo-600 hover:underline"

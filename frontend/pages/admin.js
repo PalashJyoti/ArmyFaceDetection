@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Navbar from '../components/navbar';
-import axios from '../pages/api/axios'
+import axios from '../pages/api/axios';
 import Spinner from '../components/spinner';
 import CameraRow from '@/components/cameraRow';
 
@@ -101,22 +101,6 @@ const AdminPanel = () => {
     }
   };
 
-  const addUser = async () => {
-    if (!newUserName.trim()) return;
-    try {
-      const res = await axios.post('/api/auth/users', {
-        name: newUserName.trim(),
-        role: newUserRole,
-      });
-      setUsers((prev) => [...prev, res.data]);
-      setNewUserName('');
-      setNewUserRole('user');
-    } catch (err) {
-      console.error('Failed to add user', err);
-      alert('Failed to add user. Please try again.');
-    }
-  };
-
   const deleteUser = async (id) => {
     if (!window.confirm('Are you sure you want to delete this user?')) return;
     try {
@@ -184,10 +168,9 @@ const AdminPanel = () => {
                 <div className="w-full max-w-md mx-auto">
                   <div className="relative w-full aspect-video bg-black rounded-lg mb-3 overflow-hidden">
                     <img
-                      src={`http://localhost:8080/api/camera_feed/${selectedCameraId}`}
-                      alt={`Camera ${selectedCameraId} feed`}
-                      className="absolute top-0 left-0 w-full h-full object-cover"
-                      onError={(e) => { e.target.src = '/no-signal.png'; }}
+                      src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/camera_feed/${selectedCameraId}`}
+                      alt="Live Feed"
+                      className="rounded-lg w-full h-64 object-cover border"
                     />
                   </div>
                 </div>

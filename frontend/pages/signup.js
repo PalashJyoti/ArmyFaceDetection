@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import AuthNav from '../components/authNav';
+import axios from '@/pages/api/axios';
 
 const Signup = () => {
   const [formData, setFormData] = useState({
@@ -23,43 +24,42 @@ const Signup = () => {
     setSubmitting(true);
 
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/signup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: formData.username.trim(),
-          name: formData.name.trim(),
-          password: formData.password,
-        }),
+      const res = await axios.post('/api/auth/signup', {
+        username: formData.username.trim(),
+        name: formData.name.trim(),
+        password: formData.password,
+      }, {
+        responseType: 'blob' // Since the server returns a QR code image
       });
 
-      if (res.ok) {
-        const qrBlob = await res.blob();
-        const qrUrl = URL.createObjectURL(qrBlob);
-        setQrCode(qrUrl);
+      const qrUrl = URL.createObjectURL(res.data);
+      setQrCode(qrUrl);
 
-        setTimeout(() => {
-          router.push('/login');
-        }, 10000);
-      } else {
-        let message = 'Signup failed.';
+      setTimeout(() => {
+        router.push('/login');
+      }, 10000);
+    } catch (err) {
+      let message = 'Signup failed.';
+      if (err.response) {
         try {
-          const errorData = await res.json();
-          if (res.status === 409) {
-            message = errorData.error || 'Username already exists.';
-          } else if (res.status === 400) {
-            message = errorData.error || 'Invalid request.';
+          const errorData = await err.response.data.text();
+          const parsed = JSON.parse(errorData);
+          if (err.response.status === 409) {
+            message = parsed.error || 'Username already exists.';
+          } else if (err.response.status === 400) {
+            message = parsed.error || 'Invalid request.';
           } else {
-            message = errorData.error || `Error: ${res.status}`;
+            message = parsed.error || `Error: ${err.response.status}`;
           }
         } catch (parseErr) {
           console.error('Failed to parse error response:', parseErr);
         }
-        setError(message);
+      } else {
+        console.error('Network or unexpected error:', err);
+        message = 'Something went wrong. Please check your connection and try again.';
       }
-    } catch (err) {
-      console.error('Network or unexpected error:', err);
-      setError('Something went wrong. Please check your connection and try again.');
+
+      setError(message);
     } finally {
       setSubmitting(false);
     }
@@ -117,8 +117,30 @@ const Signup = () => {
           <button
             type="submit"
             disabled={submitting}
-            className={`w-full py-2.5 font-medium rounded-lg text-white ${submitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-700 hover:bg-indigo-800'}`}
+            className={`w-full py-2.5 font-medium rounded-lg text-white flex justify-center items-center ${submitting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-700 hover:bg-indigo-800'}`}
           >
+            {submitting && (
+              <svg
+                className="animate-spin h-5 w-5 mr-2 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                ></path>
+              </svg>
+            )}
             {submitting ? 'Signing Up...' : 'Sign Up'}
           </button>
         </form>

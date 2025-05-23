@@ -1,19 +1,24 @@
+// utils/axiosInstance.ts or axios.js (depending on your project setup)
 import axios from 'axios';
 
 const instance = axios.create({
-  baseURL: 'http://localhost:8080',
+  baseURL: process.env.NEXT_PUBLIC_API_BASE_URL,
+   headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
 // Automatically attach token (if available) for every request
-instance.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-}, (error) => {
-  return Promise.reject(error);
-});
+instance.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
 
 // Global error handling
 instance.interceptors.response.use(
@@ -27,9 +32,6 @@ instance.interceptors.response.use(
         localStorage.removeItem('token');
         window.location.href = '/login';
       } else if (status === 403) {
-        // Do not alert here. Let individual request handlers (like your role change logic) deal with this.
-        // Just return the error.
-        // Optionally log it for debugging:
         console.warn('403 Forbidden:', error.response?.data || '');
       } else if (status === 404) {
         alert('Requested resource not found.');

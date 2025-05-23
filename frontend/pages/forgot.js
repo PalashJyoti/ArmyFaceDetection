@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import AuthNav from '@/components/authNav';
+import axios from '@/pages/api/axios';
 
 const ForgotPassword = () => {
   const [formData, setFormData] = useState({
@@ -9,8 +10,9 @@ const ForgotPassword = () => {
     newPassword: '',
   });
   const [error, setError] = useState(null);
-  const [showTotpInput, setShowTotpInput] = useState(false);
   const [showResetPasswordForm, setShowResetPasswordForm] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const router = useRouter();
 
   const handleChange = (e) => {
@@ -19,51 +21,51 @@ const ForgotPassword = () => {
 
   const handleTotpVerification = async (e) => {
     e.preventDefault();
+    setError(null);
+    setVerifying(true);
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/verify-totp-for-reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, token: formData.totp }),
+      await axios.post('/api/auth/verify-totp-for-reset', {
+        username: formData.username,
+        token: formData.totp,
       });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setShowResetPasswordForm(true); // Show the reset password form
-      } else {
-        setError(data.error || 'Invalid TOTP');
-      }
+      setShowResetPasswordForm(true);
     } catch (err) {
-      setError('Something went wrong. Please try again.');
+      if (err.response && err.response.data) {
+        setError(err.response.data.error || 'Invalid TOTP');
+      } else {
+        setError('Something went wrong. Please try again.');
+      }
+    } finally {
+      setVerifying(false);
     }
   };
 
   const handlePasswordResetSubmit = async (e) => {
     e.preventDefault();
+    setError(null);
+    setResetting(true);
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/reset-password', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, newPassword: formData.newPassword }),
+      await axios.post('/api/auth/reset-password', {
+        username: formData.username,
+        newPassword: formData.newPassword,
       });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        alert('Password reset successfully');
-        router.push('/login');
-      } else {
-        setError(data.error || 'Password reset failed');
-      }
+      alert('Password reset successfully');
+      router.push('/login');
     } catch (err) {
-      setError('Something went wrong. Please try again.');
+      if (err.response && err.response.data) {
+        setError(err.response.data.error || 'Password reset failed');
+      } else {
+        setError('Something went wrong. Please try again.');
+      }
+    } finally {
+      setResetting(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-indigo-100 flex items-center justify-center px-4 py-8">
       <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-md border border-indigo-200">
-        <AuthNav/>
+        <AuthNav />
         <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Forgot Password</h2>
 
         {error && <p className="text-red-600 text-center mb-4">{error}</p>}
@@ -95,9 +97,32 @@ const ForgotPassword = () => {
           </div>
           <button
             type="submit"
-            className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg"
+            disabled={verifying}
+            className={`w-full py-2.5 font-medium rounded-lg text-white flex justify-center items-center ${verifying ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-700 hover:bg-indigo-800'}`}
           >
-            Verify TOTP
+            {verifying && (
+              <svg
+                className="animate-spin h-5 w-5 mr-2 text-white"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle
+                  className="opacity-25"
+                  cx="12"
+                  cy="12"
+                  r="10"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                ></circle>
+                <path
+                  className="opacity-75"
+                  fill="currentColor"
+                  d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                ></path>
+              </svg>
+            )}
+            {verifying ? 'Verifying...' : 'Verify TOTP'}
           </button>
         </form>
 
@@ -117,9 +142,32 @@ const ForgotPassword = () => {
             </div>
             <button
               type="submit"
-              className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg"
+              disabled={resetting}
+              className={`w-full py-2.5 font-medium rounded-lg text-white flex justify-center items-center ${resetting ? 'bg-indigo-400 cursor-not-allowed' : 'bg-indigo-700 hover:bg-indigo-800'}`}
             >
-              Reset Password
+              {resetting && (
+                <svg
+                  className="animate-spin h-5 w-5 mr-2 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                  ></path>
+                </svg>
+              )}
+              {resetting ? 'Resetting...' : 'Reset Password'}
             </button>
           </form>
         )}

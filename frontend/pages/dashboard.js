@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '../components/navbar';
-import axios from '../pages/api/axios';
+import axios from '@/pages/api/axios';
 
 import {
   Sector, PieChart, Pie, Cell,
@@ -75,6 +75,36 @@ const Dashboard = () => {
   const [totalDetections, setTotalDetections] = useState(0);
   const [emotionTrends, setEmotionTrends] = useState({});
 
+  const [cameraUrl, setCameraUrl] = useState('');
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    if (!selectedCamera) {
+      setCameraUrl('');
+      return;
+    }
+
+    const fetchCameraFeed = async () => {
+      try {
+        const res = await axios.get(`/api/camera_feed/${selectedCamera}`, {
+          responseType: 'blob',
+        });
+        const url = URL.createObjectURL(res.data);
+        setCameraUrl(url);
+        setHasError(false);
+      } catch (err) {
+        console.error('Failed to load camera feed:', err);
+        setHasError(true);
+      }
+    };
+
+    fetchCameraFeed();
+
+    return () => {
+      if (cameraUrl) URL.revokeObjectURL(cameraUrl);
+    };
+  }, [selectedCamera]);
+
   useEffect(() => setIsClient(true), []);
 
   useEffect(() => {
@@ -110,11 +140,14 @@ const Dashboard = () => {
         setPeakTimes(data.peak_times);
         setTotalDetections(data.total_detections);
 
+        console.log('Pie Data:', pieData);
+        console.log('Pie percent:', piePercentageData);
+
         if (data.avg_intensity) {
           setAvgIntensityData(data.avg_intensity);
         } else {
           const avgData = data.timeline_data.map(entry => ({
-            name: entry.timestamp || '',
+            name: entry.time || '',
             value: (entry.FEAR + entry.ANGER + entry.SADNESS + entry.DISGUST) / 4
           }));
           setAvgIntensityData(avgData);
@@ -256,242 +289,243 @@ const Dashboard = () => {
   return (
     <>
       <Navbar onLogout={handleLogout} />
-        <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 p-6">
-          <h1 className="text-4xl font-bold text-center text-indigo-800 mb-10 tracking-tight">
-            Emotion Analysis Dashboard
-          </h1>
+      <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 p-6">
+        <h1 className="text-4xl font-bold text-center text-indigo-800 mb-10 tracking-tight">
+          Emotion Analysis Dashboard
+        </h1>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto">
 
-            {/* Column 1 */}
-            <div className="space-y-4">
+          {/* Column 1 */}
+          <div className="space-y-4">
 
-              <div className="bg-white rounded-2xl shadow p-6 text-center">
-                <h2 className="text-lg font-semibold text-indigo-700 mb-2">Dominant Negative Emotion</h2>
-                {loadingAnalytics ? (
-                  <p className="text-gray-500">Loading...</p>
-                ) : dominantEmotion ? (
-                  <div className="text-3xl font-bold flex justify-center items-center gap-2">
-                    {emotionEmojis[dominantEmotion.name.toUpperCase()] || '❓'} {dominantEmotion.name}
+            <div className="bg-white rounded-2xl shadow p-6 text-center">
+              <h2 className="text-lg font-semibold text-indigo-700 mb-2">Dominant Negative Emotion</h2>
+              {loadingAnalytics ? (
+                <p className="text-gray-500">Loading...</p>
+              ) : dominantEmotion ? (
+                <div className="text-3xl font-bold flex justify-center items-center gap-2">
+                  {emotionEmojis[dominantEmotion.name.toUpperCase()] || '❓'} {dominantEmotion.name}
+                </div>
+              ) : (
+                <div className="text-gray-500">No data</div>
+              )}
+            </div>
+
+            {/* Live Feed */}
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-4">Live Detection Feed</h3>
+
+              {loadingCameras ? (
+                <p className="text-gray-500">Loading cameras...</p>
+              ) : (
+                <>
+                  <div className="mb-4 flex items-center gap-2">
+                    <label className="text-sm font-medium">Select Camera:</label>
+                    <select
+                      className="border border-gray-300 rounded px-2 py-1"
+                      value={selectedCamera || ''}
+                      onChange={(e) => setSelectedCamera(e.target.value)}
+                    >
+                      {cameraList.map(cam => (
+                        <option key={cam.id} value={cam.id}>
+                          {cam.name || `Camera ${cam.id}`}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {selectedCamera ? (
+                    <img
+                      src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/camera_feed/${selectedCamera}`}
+                      alt="Live Feed"
+                      className="rounded-lg w-full h-64 object-cover border"
+                    />
+                  ) : (
+                    <div className="bg-gray-100 h-64 flex items-center justify-center rounded-lg">
+                      <span className="text-gray-500">Select a camera to view feed</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-600">
+              <p>
+                IP: <span className="font-mono">
+                  {cameraList.find(cam => cam.id === selectedCamera)?.ip || "N/A"}
+                </span>
+              </p>
+              <p>
+                Status:{" "}
+                <span className={
+                  (() => {
+                    const status = cameraList.find(cam => cam.id === selectedCamera)?.status;
+                    if (status === "Active") return "text-green-600";
+                    if (status === "Inactive") return "text-gray-500";
+                    if (status === "Error") return "text-red-600";
+                    return "text-yellow-500";
+                  })()
+                }>
+                  {cameraList.find(cam => cam.id === selectedCamera)?.status || "Unknown"}
+                </span>
+              </p>
+            </div>
+
+
+          </div>
+
+          {/* Column 2 */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-4">Emotion Trend</h3>
+              {isClient ? (
+                emotionTrends ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    {Object.entries(emotionTrends).map(([emotion, trend]) => {
+                      const trendIcon = {
+                        increase: '⬆️',
+                        decrease: '⬇️',
+                        'no change': '➡️',
+                      }[trend];
+
+                      const trendColor = {
+                        increase: 'text-green-600',
+                        decrease: 'text-red-600',
+                        'no change': 'text-gray-600',
+                      }[trend];
+
+                      return (
+                        <div key={emotion} className="flex items-center justify-between">
+                          <span className="font-medium text-gray-700">{emotion}</span>
+                          <span className={`font-semibold ${trendColor}`}>
+                            {trendIcon} {trend}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : <p className="text-gray-500">No data</p>
+              ) : null}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">
+                Emotion Intensity Over Time
+              </h3>
+              {isClient ? (
+                timelineData.length ? (
+                  <LineChart width={300} height={150} data={timelineData}>
+                    <XAxis
+                      dataKey="time"
+                      tick={{ fontSize: 10 }}
+                      interval="preserveStartEnd"
+                    // No need to format "HH:MM"
+                    />
+                    <YAxis />
+                    <Tooltip />
+                    <Legend />
+                    {negativeEmotions.map(emotion => (
+                      <Line
+                        key={emotion}
+                        type="monotone"
+                        dataKey={emotion}
+                        stroke={emotionColors[emotion]}
+                        strokeWidth={2}
+                        dot={false}
+                        strokeDasharray="3 3"
+                      />
+                    ))}
+                  </LineChart>
+                ) : (
+                  <p className="text-gray-500">No data</p>
+                )
+              ) : (
+                <p className="text-gray-400">Loading...</p>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl shadow p-6 flex justify-between items-center">
+              <span className="text-sm font-medium text-gray-700">Time Range:</span>
+              <select
+                className="ml-2 border border-gray-300 rounded px-2 py-1"
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value)}
+              >
+                <option value="5min">Last 5 minutes</option>
+                <option value="30min">Last 30 minutes</option>
+                <option value="1hr">Last 1 hour</option>
+                <option value="today">Today</option>
+              </select>
+            </div>
+            <div className="bg-white rounded-2xl shadow p-6 space-y-2">
+              <button
+                onClick={exportCSV}
+                className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
+              >
+                Export as CSV
+              </button>
+            </div>
+
+
+          </div>
+
+          {/* Column 3 */}
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">
+                Emotion Distribution
+              </h3>
+              {isClient ? (
+                pieData.length ? (
+                  <div className="w-full flex justify-center">
+                    <ResponsiveContainer width="100%" height={300}>
+                      <PieChart>
+                        <Pie
+                          activeIndex={0}
+                          activeShape={renderActiveShape}
+                          data={pieData}
+                          cx="55%"
+                          cy="50%"
+                          innerRadius={40}
+                          outerRadius={60}
+                          fill="#8884d8"
+                          dataKey="value"
+                          nameKey="name"
+                        >
+                          {pieData.map((entry, index) => (
+                            <Cell
+                              key={`cell-${index}`}
+                              fill={emotionColors[entry.name.toUpperCase()] || '#8884d8'}
+                            />
+                          ))}
+                        </Pie>
+                      </PieChart>
+                    </ResponsiveContainer>
+
                   </div>
                 ) : (
-                  <div className="text-gray-500">No data</div>
-                )}
-              </div>
-
-              {/* Live Feed */}
-              <div className="bg-white rounded-2xl shadow p-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-4">Live Detection Feed</h3>
-
-                {loadingCameras ? (
-                  <p className="text-gray-500">Loading cameras...</p>
-                ) : (
-                  <>
-                    <div className="mb-4 flex items-center gap-2">
-                      <label className="text-sm font-medium">Select Camera:</label>
-                      <select
-                        className="border border-gray-300 rounded px-2 py-1"
-                        value={selectedCamera || ''}
-                        onChange={(e) => setSelectedCamera(e.target.value)}
-                      >
-                        {cameraList.map(cam => (
-                          <option key={cam.id} value={cam.id}>
-                            {cam.name || `Camera ${cam.id}`}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {selectedCamera ? (
-                      <img
-                        src={`http://127.0.0.1:8080/api/camera_feed/${selectedCamera}`}
-                        alt="Live Feed"
-                        className="rounded-lg w-full h-64 object-cover border"
-                      />
-                    ) : (
-                      <div className="bg-gray-100 h-64 flex items-center justify-center rounded-lg">
-                        <span className="text-gray-500">Select a camera to view feed</span>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
-              <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-600">
-                <p>
-                  IP: <span className="font-mono">
-                    {cameraList.find(cam => cam.id === selectedCamera)?.ip || "N/A"}
-                  </span>
-                </p>
-                <p>
-                  Status:{" "}
-                  <span className={
-                    (() => {
-                      const status = cameraList.find(cam => cam.id === selectedCamera)?.status;
-                      if (status === "Active") return "text-green-600";
-                      if (status === "Inactive") return "text-gray-500";
-                      if (status === "Error") return "text-red-600";
-                      return "text-yellow-500";
-                    })()
-                  }>
-                    {cameraList.find(cam => cam.id === selectedCamera)?.status || "Unknown"}
-                  </span>
-                </p>
-              </div>
-
-
+                  <p className="text-gray-500">No data</p>
+                )
+              ) : (
+                <p className="text-gray-400">Loading...</p>
+              )}
             </div>
 
-            {/* Column 2 */}
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl shadow p-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-4">Emotion Trend</h3>
-                {isClient ? (
-                  emotionTrends ? (
-                    <div className="grid grid-cols-2 gap-4">
-                      {Object.entries(emotionTrends).map(([emotion, trend]) => {
-                        const trendIcon = {
-                          increase: '⬆️',
-                          decrease: '⬇️',
-                          'no change': '➡️',
-                        }[trend];
-
-                        const trendColor = {
-                          increase: 'text-green-600',
-                          decrease: 'text-red-600',
-                          'no change': 'text-gray-600',
-                        }[trend];
-
-                        return (
-                          <div key={emotion} className="flex items-center justify-between">
-                            <span className="font-medium text-gray-700">{emotion}</span>
-                            <span className={`font-semibold ${trendColor}`}>
-                              {trendIcon} {trend}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : <p className="text-gray-500">No data</p>
-                ) : null}
-              </div>
-
-              <div className="bg-white rounded-2xl shadow p-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-2">
-                  Emotion Intensity Over Time
-                </h3>
-                {isClient ? (
-                  timelineData.length ? (
-                    <LineChart width={300} height={150} data={timelineData}>
-                      <XAxis
-                        dataKey="time"
-                        tick={{ fontSize: 10 }}
-                        interval="preserveStartEnd"
-                      // No need to format "HH:MM"
-                      />
-                      <YAxis />
-                      <Tooltip />
-                      <Legend />
-                      {negativeEmotions.map(emotion => (
-                        <Line
-                          key={emotion}
-                          type="monotone"
-                          dataKey={emotion}
-                          stroke={emotionColors[emotion]}
-                          strokeWidth={2}
-                          dot={false}
-                          strokeDasharray="3 3"
-                        />
-                      ))}
-                    </LineChart>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )
-                ) : (
-                  <p className="text-gray-400">Loading...</p>
-                )}
-              </div>
-
-              <div className="bg-white rounded-2xl shadow p-6 flex justify-between items-center">
-                <span className="text-sm font-medium text-gray-700">Time Range:</span>
-                <select
-                  className="ml-2 border border-gray-300 rounded px-2 py-1"
-                  value={timeRange}
-                  onChange={(e) => setTimeRange(e.target.value)}
-                >
-                  <option value="5min">Last 5 minutes</option>
-                  <option value="30min">Last 30 minutes</option>
-                  <option value="1hr">Last 1 hour</option>
-                  <option value="today">Today</option>
-                </select>
-              </div>
-              <div className="bg-white rounded-2xl shadow p-6 space-y-2">
-                <button
-                  onClick={exportCSV}
-                  className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
-                >
-                  Export as CSV
-                </button>
-              </div>
-
-
-            </div>
-
-            {/* Column 3 */}
-            <div className="space-y-4">
-              <div className="bg-white rounded-2xl shadow p-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-2">
-                  Emotion Distribution
-                </h3>
-                {isClient ? (
-                  pieData.length ? (
-                    <div className="w-full flex justify-center">
-                      <ResponsiveContainer width={250} height={250}>
-                        <PieChart>
-                          <Pie
-                            activeIndex={0}
-                            activeShape={renderActiveShape}
-                            data={pieData}
-                            cx="50%"
-                            cy="50%"
-                            innerRadius={40}
-                            outerRadius={60}
-                            fill="#8884d8"
-                            dataKey="value"
-                            nameKey="name"
-                          >
-                            {pieData.map((entry, index) => (
-                              <Cell
-                                key={`cell-${index}`}
-                                fill={emotionColors[entry.name.toUpperCase()] || '#8884d8'}
-                              />
-                            ))}
-                          </Pie>
-                        </PieChart>
-                      </ResponsiveContainer>
-                    </div>
-                  ) : (
-                    <p className="text-gray-500">No data</p>
-                  )
-                ) : (
-                  <p className="text-gray-400">Loading...</p>
-                )}
-              </div>
-
-              <div className="bg-white rounded-2xl shadow p-6">
-                <h3 className="text-lg font-semibold text-indigo-700 mb-2">Instant Emotion Count</h3>
-                {isClient ? (
-                  pieData.length ? (
-                    <BarChart width={300} height={150} data={pieData}>
-                      <XAxis dataKey="name" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#8884d8" />
-                    </BarChart>
-                  ) : <p className="text-gray-500">No data</p>
-                ) : null}
-              </div>
+            <div className="bg-white rounded-2xl shadow p-6">
+              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Instant Emotion Count</h3>
+              {isClient ? (
+                pieData.length ? (
+                  <BarChart width={300} height={150} data={pieData}>
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip />
+                    <Bar dataKey="value" fill="#8884d8" />
+                  </BarChart>
+                ) : <p className="text-gray-500">No data</p>
+              ) : null}
             </div>
           </div>
+        </div>
       </div>
     </>
   );

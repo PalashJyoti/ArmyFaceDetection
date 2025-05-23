@@ -10,7 +10,14 @@ from app.camera.camera_manager import init_camera_manager
 emotion_detectors = {}
 
 def create_app():
-    app = Flask(__name__)
+    # Get path to parent directory (backend/)
+    backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+
+    app = Flask(
+        __name__,
+        static_folder=os.path.join(backend_dir, 'static'),
+        static_url_path='/static'
+    )
     app.secret_key = 'your_secret_key'
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -90,11 +97,14 @@ def create_app():
 def start_emotion_threads(app):
     from app.camera.camera_manager import get_camera_manager
     from app.camera.emotion_worker import EmotionDetectorThread
+    import os
 
-    camera_manager=get_camera_manager()
+    camera_manager = get_camera_manager()
     model_path = os.path.abspath("app/camera/fer_model.pth")
-    camera_manager.emotion_detectors = {}  # ✅ attach it to camera_manager
+    camera_manager.emotion_detectors = {}  # attach it to camera_manager
 
     for cam_id in camera_manager.cameras:
         detector = EmotionDetectorThread(cam_id, model_path, app)
         camera_manager.emotion_detectors[cam_id] = detector
+        detector.start()   # <-- Start the thread here
+        print(f"[init] Started emotion detector thread for camera {cam_id}")

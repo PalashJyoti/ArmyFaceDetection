@@ -2,6 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import AuthNav from '@/components/authNav';
+import axios from '@/pages/api/axios';
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -33,26 +34,18 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, password: formData.password }),
+      const res = await axios.post('/api/auth/login', {
+        username: formData.username,
+        password: formData.password,
       });
 
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        data = { error: 'Invalid server response' };
-      }
-
-      if (res.ok) {
-        setShowTotpInput(true);
-      } else {
-        setLoginError(data.error || 'Invalid login');
-      }
+      setShowTotpInput(true);
     } catch (err) {
-      setLoginError('Network error. Please try again.');
+      if (err.response) {
+        setLoginError(err.response.data.error || 'Invalid login');
+      } else {
+        setLoginError('Network error. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -64,27 +57,23 @@ const Login = () => {
     setIsLoading(true);
 
     try {
-      const res = await fetch('http://127.0.0.1:8080/api/auth/verify-totp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: formData.username, token: formData.totp }),
+      const res = await axios.post('/api/auth/verify-totp', {
+        username: formData.username,
+        token: formData.totp,
       });
 
-      let data;
-      try {
-        data = await res.json();
-      } catch {
-        data = { error: 'Invalid server response' };
-      }
-
-      if (res.ok && data.token) {
-        localStorage.setItem('token', data.token);
-        router.push('/dashboard'); // Go to admin page
+      if (res.data.token) {
+        localStorage.setItem('token', res.data.token);
+        router.push('/dashboard');
       } else {
-        setTotpError(data.error || 'Invalid TOTP');
+        setTotpError('Invalid TOTP');
       }
     } catch (err) {
-      setTotpError('Network error. Please try again.');
+      if (err.response && err.response.data) {
+        setTotpError(err.response.data.error || 'Invalid TOTP');
+      } else {
+        setTotpError('Network error. Please try again.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -96,48 +85,67 @@ const Login = () => {
         <AuthNav />
         <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Login to MindSight AI</h2>
 
-        {loginError && !showTotpInput && <p className="text-red-600 text-center mb-4">{loginError}</p>}
+        {loginError && !showTotpInput && (
+          <p className="text-red-600 text-center mb-4">{loginError}</p>
+        )}
 
-        <form onSubmit={handleLoginSubmit} className="space-y-5">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-indigo-700 mb-1">Username</label>
-            <input
-              type="text"
-              id="username"
-              name="username"
-              required
-              value={formData.username}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
-          </div>
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-indigo-700 mb-1">Password</label>
-            <input
-              type="password"
-              id="password"
-              name="password"
-              required
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg disabled:opacity-50"
-          >
-            {isLoading ? 'Logging in...' : 'Log In'}
-          </button>
-        </form>
+        {!showTotpInput && (
+          <form onSubmit={handleLoginSubmit} className="space-y-5">
+            <div>
+              <label
+                htmlFor="username"
+                className="block text-sm font-medium text-indigo-700 mb-1"
+              >
+                Username
+              </label>
+              <input
+                type="text"
+                id="username"
+                name="username"
+                required
+                value={formData.username}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="password"
+                className="block text-sm font-medium text-indigo-700 mb-1"
+              >
+                Password
+              </label>
+              <input
+                type="password"
+                id="password"
+                name="password"
+                required
+                value={formData.password}
+                onChange={handleChange}
+                className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg disabled:opacity-50"
+            >
+              {isLoading ? 'Logging in...' : 'Log In'}
+            </button>
+          </form>
+        )}
 
         {showTotpInput && (
           <>
             {totpError && <p className="text-red-600 text-center mt-4">{totpError}</p>}
             <form onSubmit={handleTotpSubmit} className="mt-6 space-y-5">
               <div>
-                <label htmlFor="totp" className="block text-sm font-medium text-indigo-700 mb-1">TOTP</label>
+                <label
+                  htmlFor="totp"
+                  className="block text-sm font-medium text-indigo-700 mb-1"
+                >
+                  TOTP
+                </label>
                 <input
                   ref={totpRef}
                   type="text"
@@ -164,10 +172,15 @@ const Login = () => {
         )}
 
         <p className="text-sm text-center text-gray-600 mt-6">
-          <a href="/forgot" className="text-indigo-700 hover:underline">Forgot Password?</a>
+          <a href="/forgot" className="text-indigo-700 hover:underline">
+            Forgot Password?
+          </a>
         </p>
         <p className="text-sm text-center text-gray-600 mt-2">
-          Don&apos;t have an account? <a href="/signup" className="text-indigo-700 hover:underline">Sign up</a>
+          Don&apos;t have an account?{' '}
+          <a href="/signup" className="text-indigo-700 hover:underline">
+            Sign up
+          </a>
         </p>
       </div>
     </div>

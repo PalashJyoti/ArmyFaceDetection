@@ -3,13 +3,22 @@ from datetime import datetime, timedelta
 from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
 from app.models import DetectionLog, Camera, CameraStatus
 from collections import defaultdict
+from app.camera.model import predict_emotion, ResEmoteNet
 from app.extensions import db
 from pytz import timezone as pytz_timezone, utc
 import cv2
 import os
+import base64
+import torchvision.transforms as transforms
+import uuid
+from PIL import Image
 import time
 from sqlalchemy.exc import IntegrityError
+import numpy as np
+import torch
+import torch.nn.functional as F
 from app import emotion_detectors
+from app.camera.model import _load_model
 
 camera_bp = Blueprint('camera_feed', __name__)
 
@@ -50,7 +59,8 @@ def video_feed(camera_id):
 # Emotion-detected feed from background thread
 @camera_bp.route('/api/camera_feed/<int:camera_id>')
 def camera_feed(camera_id):
-    camera_manager=get_camera_manager()
+    camera_manager = get_camera_manager()
+
     def generate():
         detector = camera_manager.emotion_detectors.get(camera_id)
         if detector is None:
@@ -87,10 +97,11 @@ def get_detection_logs():
     return jsonify(result)
 
 # Serve alert screenshots
-@camera_bp.route('/static/alerts/<path:filename>')
+@camera_bp.route('/alerts/<path:filename>')
 def serve_alert_image(filename):
     alerts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'alerts')
     return send_from_directory(alerts_dir, filename)
+
 
 @camera_bp.route('/api/cameras', methods=['GET'])
 def get_cameras():
@@ -381,3 +392,178 @@ def update_camera(camera_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': 'Failed to update camera'}), 500
+
+
+UPLOAD_FOLDER = 'uploads'
+OUTPUT_FOLDER = 'outputs'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
+
+def run_emotion_detection(input_path, output_path):
+    device = torch.device("cpu")
+    model = ResEmoteNet().to(device)
+    checkpoint = torch.load('models/fer_model.pth', map_location='cpu')
+    model.load_state_dict(checkpoint['model_state_dict'])
+    model.eval()
+
+    transform = transforms.Compose([
+        transforms.Resize((64, 64)),
+        transforms.Grayscale(num_output_channels=3),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+    ])
+
+    emotions = ['happiness', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'neutral']
+    face_classifier = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+    cap = cv2.VideoCapture(input_path)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    out = cv2.VideoWriter(output_path, fourcc, 20.0, (1920, 1080))
+
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    max_emotion = ''
+    counter = 0
+
+    def detect_emotion(frame):
+        frame_tensor = transform(Image.fromarray(frame)).unsqueeze(0).to(device)
+        with torch.no_grad():
+            outputs = model(frame_tensor)
+            probs = F.softmax(outputs, dim=1)
+        return probs.cpu().numpy().flatten()
+
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame = cv2.resize(frame, (1920, 1080))
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        faces = face_classifier.detectMultiScale(gray, 1.3, 5)
+
+        for (x, y, w, h) in faces:
+            crop = frame[y:y+h, x:x+w]
+            scores = detect_emotion(crop)
+            label_idx = np.argmax(scores)
+            label = emotions[label_idx]
+            conf = scores[label_idx]
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 2)
+            cv2.putText(frame, f"{label.upper()} ({conf:.2f})", (x, y - 10), font, 1.0, (0, 255, 0), 2)
+
+        out.write(frame)
+
+    cap.release()
+    out.release()
+
+@camera_bp.route('/api/process_video', methods=['POST'])
+def process_uploaded_video():
+    file = request.files['video']
+    if not file:
+        return jsonify({'error': 'No file uploaded'}), 400
+
+    filename = f"{uuid.uuid4().hex}.mp4"
+    filepath = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(filepath)
+
+    output_path = os.path.join(OUTPUT_FOLDER, f"processed_{filename}")
+    run_emotion_detection(filepath, output_path)
+
+    return jsonify({'filename': f"processed_{filename}"}), 200
+
+
+MODEL_PATH = 'app/camera/fer_model.pth'
+# Setup device, model, emotions and transforms just like before
+device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+
+emotions = ['happiness', 'surprise', 'sadness', 'anger', 'disgust', 'fear', 'neutral']
+
+transform = transforms.Compose([
+    transforms.Resize((64, 64)),
+    transforms.Grayscale(num_output_channels=3),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                         std=[0.229, 0.224, 0.225]),
+])
+
+model = ResEmoteNet().to(device)
+checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'), weights_only=True)
+model.load_state_dict(checkpoint['model_state_dict'])
+model.eval()
+
+# Haarcascade for face detection
+face_classifier = cv2.CascadeClassifier(cv2.data.haarcascades + 'haarcascade_frontalface_default.xml')
+
+# Text settings
+font = cv2.FONT_HERSHEY_SIMPLEX
+font_scale = 0.7
+font_color = (0, 255, 0)
+thickness = 2
+line_type = cv2.LINE_AA
+
+def predict_emotion(cv2_img, model_path=None):
+    # Convert OpenCV image (BGR) to PIL image (RGB)
+    pil_img = Image.fromarray(cv2.cvtColor(cv2_img, cv2.COLOR_BGR2RGB))
+
+    scores = detect_emotion(pil_img)
+    label_index = np.argmax(scores)
+    label = emotions[label_index]
+    confidence = float(scores[label_index])
+    return label, confidence
+
+
+def base64_to_cv2_img(base64_str):
+    # Remove header if present
+    if ',' in base64_str:
+        base64_str = base64_str.split(',')[1]
+
+    img_data = base64.b64decode(base64_str)
+    nparr = np.frombuffer(img_data, np.uint8)
+    img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    return img
+
+
+def cv2_img_to_base64(cv2_img):
+    _, buffer = cv2.imencode('.jpg', cv2_img)
+    jpg_as_text = base64.b64encode(buffer).decode('utf-8')
+    return jpg_as_text
+
+
+def detect_emotion(pil_img):
+    input_tensor = transform(pil_img).unsqueeze(0).to(device)
+    with torch.no_grad():
+        output = model(input_tensor)
+        probabilities = F.softmax(output, dim=1)
+    scores = probabilities.cpu().numpy().flatten()
+    return scores
+
+
+@camera_bp.route('/api/emotion-detect', methods=['POST'])
+def emotion_detect():
+    try:
+        data = request.json
+        img_b64 = data.get('image')
+        if not img_b64:
+            return jsonify({"error": "No image provided"}), 400
+
+        img = base64_to_cv2_img(img_b64)
+        if img is None:
+            return jsonify({"error": "Invalid image data"}), 400
+
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        faces = face_classifier.detectMultiScale(gray, scaleFactor=1.3, minNeighbors=5)
+
+        if len(faces) == 0:
+            return jsonify({"error": "No face detected"}), 200
+
+        x, y, w, h = faces[0]
+        face_img = img[y:y+h, x:x+w]
+        label, confidence = predict_emotion(face_img)
+
+        return jsonify({
+            "label": label,
+            "confidence": confidence,
+            "face": {"x": int(x), "y": int(y), "w": int(w), "h": int(h)}
+        })
+    except Exception as e:
+        import traceback
+        print("Error:", traceback.format_exc())
+        return jsonify({"error": "Server error"}), 500
