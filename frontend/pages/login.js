@@ -38,7 +38,6 @@ const Login = () => {
         username: formData.username,
         password: formData.password,
       });
-
       setShowTotpInput(true);
     } catch (err) {
       if (err.response) {
@@ -80,108 +79,204 @@ const Login = () => {
   };
 
   return (
-    <div className="min-h-screen bg-indigo-100 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-md bg-white p-8 rounded-2xl shadow-md border border-indigo-200">
+    <div className="relative min-h-screen">
+      {/* Navbar absolutely positioned at top */}
+      <div className="absolute top-0 left-0 right-0 z-20">
         <AuthNav />
-        <h2 className="text-2xl font-bold text-indigo-800 mb-6 text-center">Login to MindSight AI</h2>
+      </div>
 
-        {loginError && !showTotpInput && (
-          <p className="text-red-600 text-center mb-4">{loginError}</p>
-        )}
+      {/* Background wrapper */}
+      <div
+        className="min-h-screen bg-cover bg-center flex flex-col items-center justify-center px-4 py-8 relative"
+        style={{
+          backgroundImage:
+            "linear-gradient(135deg, rgba(0, 0, 0, 0.5) 0%, rgba(0, 0, 0, 0.7) 100%), url('/image-4.png')",
+        }}
+      >
+        {/* Additional overlay for better contrast */}
+        <div className="absolute inset-0 bg-black/30 backdrop-blur-[1px]"></div>
 
-        {!showTotpInput && (
-          <form onSubmit={handleLoginSubmit} className="space-y-5">
-            <div>
-              <label
-                htmlFor="username"
-                className="block text-sm font-medium text-indigo-700 mb-1"
-              >
-                Username
-              </label>
-              <input
-                type="text"
-                id="username"
-                name="username"
-                required
-                value={formData.username}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-            </div>
-            <div>
-              <label
-                htmlFor="password"
-                className="block text-sm font-medium text-indigo-700 mb-1"
-              >
-                Password
-              </label>
-              <input
-                type="password"
-                id="password"
-                name="password"
-                required
-                value={formData.password}
-                onChange={handleChange}
-                className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg disabled:opacity-50"
-            >
-              {isLoading ? 'Logging in...' : 'Log In'}
-            </button>
-          </form>
-        )}
+        <div className="relative z-10 w-full">
+          <div className="w-full max-w-md mx-auto mt-24 bg-black/40 backdrop-blur-xl rounded-2xl shadow-2xl p-8 border border-white/10 hover:border-white/20 transition-all duration-300">
+            {/* Subtle glow effect */}
+            <div className="absolute inset-0 bg-gradient-to-r from-blue-500/10 to-purple-500/10 rounded-2xl blur-xl"></div>
 
-        {showTotpInput && (
-          <>
-            {totpError && <p className="text-red-600 text-center mt-4">{totpError}</p>}
-            <form onSubmit={handleTotpSubmit} className="mt-6 space-y-5">
-              <div>
-                <label
-                  htmlFor="totp"
-                  className="block text-sm font-medium text-indigo-700 mb-1"
-                >
-                  TOTP
-                </label>
-                <input
-                  ref={totpRef}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="\d*"
-                  maxLength="6"
-                  id="totp"
-                  name="totp"
-                  required
-                  value={formData.totp}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2 border border-indigo-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                />
+            <div className="relative z-10">
+              <h2 className="text-3xl font-bold mb-8 text-center text-white drop-shadow-lg">
+                Login to{' '}
+                <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  MindSight AI
+                </span>
+              </h2>
+
+              {loginError && !showTotpInput && (
+                <div className="mb-6 p-3 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-sm">
+                  <p className="text-center text-red-200 font-medium">{loginError}</p>
+                </div>
+              )}
+
+              {!showTotpInput && (
+                <form onSubmit={handleLoginSubmit} className="space-y-6">
+                  <div>
+                    <label
+                      htmlFor="username"
+                      className="block text-sm font-medium mb-2 text-gray-200"
+                    >
+                      Username
+                    </label>
+                    <input
+                      type="text"
+                      id="username"
+                      name="username"
+                      required
+                      value={formData.username}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 border border-white/20 bg-white/10 backdrop-blur-sm text-white placeholder-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-200 hover:bg-white/15"
+                      placeholder="Enter your username"
+                    />
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="password"
+                      className="block text-sm font-medium mb-2 text-gray-200"
+                    >
+                      Password
+                    </label>
+                    <input
+                      type="password"
+                      id="password"
+                      name="password"
+                      required
+                      value={formData.password}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 border border-white/20 bg-white/10 backdrop-blur-sm text-white placeholder-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-200 hover:bg-white/15"
+                      placeholder="Enter your password"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={isLoading}
+                    className="w-full py-3 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] border border-white/20"
+                  >
+                    {isLoading ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                            fill="none"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                        Logging in...
+                      </span>
+                    ) : (
+                      'Log In'
+                    )}
+                  </button>
+                </form>
+              )}
+
+              {showTotpInput && (
+                <>
+                  {totpError && (
+                    <div className="mb-6 p-3 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-sm">
+                      <p className="text-center text-red-200 font-medium">{totpError}</p>
+                    </div>
+                  )}
+
+                  <form onSubmit={handleTotpSubmit} className="space-y-6">
+                    <div>
+                      <label
+                        htmlFor="totp"
+                        className="block text-sm font-medium mb-2 text-gray-200"
+                      >
+                        Two-Factor Authentication Code
+                      </label>
+                      <input
+                        ref={totpRef}
+                        type="text"
+                        inputMode="numeric"
+                        pattern="\d*"
+                        maxLength="6"
+                        id="totp"
+                        name="totp"
+                        required
+                        value={formData.totp}
+                        onChange={handleChange}
+                        className="w-full px-4 py-3 border border-white/20 bg-white/10 backdrop-blur-sm text-white placeholder-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:border-blue-400/50 transition-all duration-200 hover:bg-white/15 text-center text-lg tracking-widest"
+                        placeholder="000000"
+                      />
+                      <p className="text-xs text-gray-300 mt-1 text-center">
+                        Enter the 6-digit code from your authenticator app
+                      </p>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isLoading}
+                      className="w-full py-3 rounded-lg font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg hover:shadow-xl transform hover:scale-[1.02] border border-white/20"
+                    >
+                      {isLoading ? (
+                        <span className="flex items-center justify-center gap-2">
+                          <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                            <circle
+                              className="opacity-25"
+                              cx="12"
+                              cy="12"
+                              r="10"
+                              stroke="currentColor"
+                              strokeWidth="4"
+                              fill="none"
+                            ></circle>
+                            <path
+                              className="opacity-75"
+                              fill="currentColor"
+                              d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                            ></path>
+                          </svg>
+                          Verifying...
+                        </span>
+                      ) : (
+                        'Verify Code'
+                      )}
+                    </button>
+                  </form>
+                </>
+              )}
+
+              <div className="mt-8 pt-6 border-t border-white/10">
+                <p className="text-sm text-center mb-3 text-gray-300">
+                  <a
+                    href="/forgot"
+                    className="hover:underline text-blue-400 hover:text-blue-300 transition-colors duration-200"
+                  >
+                    Forgot Password?
+                  </a>
+                </p>
+                <p className="text-sm text-center text-gray-300">
+                  Don&apos;t have an account?{' '}
+                  <a
+                    href="/signup"
+                    className="hover:underline text-blue-400 hover:text-blue-300 transition-colors duration-200 font-medium"
+                  >
+                    Sign up
+                  </a>
+                </p>
               </div>
-              <button
-                type="submit"
-                disabled={isLoading}
-                className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-800 text-white font-medium rounded-lg disabled:opacity-50"
-              >
-                {isLoading ? 'Verifying...' : 'Verify TOTP'}
-              </button>
-            </form>
-          </>
-        )}
-
-        <p className="text-sm text-center text-gray-600 mt-6">
-          <a href="/forgot" className="text-indigo-700 hover:underline">
-            Forgot Password?
-          </a>
-        </p>
-        <p className="text-sm text-center text-gray-600 mt-2">
-          Don&apos;t have an account?{' '}
-          <a href="/signup" className="text-indigo-700 hover:underline">
-            Sign up
-          </a>
-        </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

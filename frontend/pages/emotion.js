@@ -120,7 +120,7 @@ export default function LiveEmotionDetect({ onBack }) {
     const imageBase64 = canvas.toDataURL('image/jpeg');
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/emotion-detect`, {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/emotion-detect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageBase64 }),

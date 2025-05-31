@@ -2,7 +2,6 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useRouter } from 'next/router';
 import Navbar from '../components/navbar';
 import axios from '@/pages/api/axios';
-
 import {
   Sector, PieChart, Pie, Cell,
   BarChart, Bar,
@@ -10,6 +9,7 @@ import {
   LineChart, Line, Legend,
   ResponsiveContainer
 } from 'recharts';
+import InteractivePieChart from '@/components/interactivePieChart';
 
 const emotionColors = {
   FEAR: '#f87171',
@@ -17,12 +17,14 @@ const emotionColors = {
   SADNESS: '#60a5fa',
   DISGUST: '#34d399'
 };
+
 const emotionEmojis = {
   FEAR: '😨',
   ANGER: '😠',
   SADNESS: '😢',
   DISGUST: '🤢'
 };
+
 const negativeEmotions = ['FEAR', 'ANGER', 'SADNESS', 'DISGUST'];
 
 const renderActiveShape = (props) => {
@@ -43,15 +45,15 @@ const renderActiveShape = (props) => {
 
   return (
     <g>
-      <text x={cx} y={cy} dy={8} textAnchor="middle" fill={fill}>
+      <text x={cx} y={cy} dy={8} textAnchor="middle" fill="#ffffff" fontWeight="bold">
         {payload.name}
       </text>
       <Sector cx={cx} cy={cy} innerRadius={innerRadius} outerRadius={outerRadius + 6}
         startAngle={startAngle} endAngle={endAngle} fill={fill} />
       <path d={`M${sx},${sy}L${mx},${my}L${ex},${ey}`} stroke={fill} fill="none" />
       <circle cx={ex} cy={ey} r={2} fill={fill} stroke="none" />
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#333">{`${value}`}</text>
-      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey + 16} textAnchor={textAnchor} fill="#999">
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey} textAnchor={textAnchor} fill="#ffffff" fontWeight="bold">{`${value}`}</text>
+      <text x={ex + (cos >= 0 ? 1 : -1) * 12} y={ey + 16} textAnchor={textAnchor} fill="#e5e7eb">
         {`(${(percent * 100).toFixed(1)}%)`}
       </text>
     </g>
@@ -74,7 +76,6 @@ const Dashboard = () => {
   const [peakTimes, setPeakTimes] = useState({});
   const [totalDetections, setTotalDetections] = useState(0);
   const [emotionTrends, setEmotionTrends] = useState({});
-
   const [cameraUrl, setCameraUrl] = useState('');
   const [hasError, setHasError] = useState(false);
 
@@ -99,7 +100,6 @@ const Dashboard = () => {
     };
 
     fetchCameraFeed();
-
     return () => {
       if (cameraUrl) URL.revokeObjectURL(cameraUrl);
     };
@@ -124,14 +124,12 @@ const Dashboard = () => {
     fetchCameras();
   }, []);
 
-
   useEffect(() => {
     const fetchAnalytics = async () => {
       setLoadingAnalytics(true);
       try {
         const res = await axios.get(`/api/detection-analytics?range=${timeRange}`);
         const data = res.data;
-
         setPieData(data.pie_data);
         setPiePercentageData(data.pie_percentage_data);
         setMostFrequentEmotion(data.most_frequent_emotion);
@@ -139,7 +137,6 @@ const Dashboard = () => {
         setEmotionTrends(data.emotion_trends);
         setPeakTimes(data.peak_times);
         setTotalDetections(data.total_detections);
-
         console.log('Pie Data:', pieData);
         console.log('Pie percent:', piePercentageData);
 
@@ -166,7 +163,6 @@ const Dashboard = () => {
         setLoadingAnalytics(false);
       }
     };
-
     fetchAnalytics();
   }, [timeRange]);
 
@@ -289,240 +285,262 @@ const Dashboard = () => {
   return (
     <>
       <Navbar onLogout={handleLogout} />
-      <div className="min-h-screen bg-gradient-to-tr from-indigo-100 via-purple-100 to-pink-100 p-6">
-        <h1 className="text-4xl font-bold text-center text-indigo-800 mb-10 tracking-tight">
-          Emotion Analysis Dashboard
-        </h1>
+      <div
+        className="min-h-screen bg-cover bg-center p-6"
+        style={{ backgroundImage: `url('/image-8.png')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+      >
+        {/* Dark overlay for better text readability */}
+        <div className="absolute inset-0 bg-black/40 z-0"></div>
+        
+        <div className="relative z-10">
+          <h1 className="text-4xl font-bold text-center text-white mb-10 tracking-tight drop-shadow-lg">
+            Emotion Analysis Dashboard
+          </h1>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto">
-
-          {/* Column 1 */}
-          <div className="space-y-4">
-
-            <div className="bg-white rounded-2xl shadow p-6 text-center">
-              <h2 className="text-lg font-semibold text-indigo-700 mb-2">Dominant Negative Emotion</h2>
-              {loadingAnalytics ? (
-                <p className="text-gray-500">Loading...</p>
-              ) : dominantEmotion ? (
-                <div className="text-3xl font-bold flex justify-center items-center gap-2">
-                  {emotionEmojis[dominantEmotion.name.toUpperCase()] || '❓'} {dominantEmotion.name}
-                </div>
-              ) : (
-                <div className="text-gray-500">No data</div>
-              )}
-            </div>
-
-            {/* Live Feed */}
-            <div className="bg-white rounded-2xl shadow p-6">
-              <h3 className="text-lg font-semibold text-indigo-700 mb-4">Live Detection Feed</h3>
-
-              {loadingCameras ? (
-                <p className="text-gray-500">Loading cameras...</p>
-              ) : (
-                <>
-                  <div className="mb-4 flex items-center gap-2">
-                    <label className="text-sm font-medium">Select Camera:</label>
-                    <select
-                      className="border border-gray-300 rounded px-2 py-1"
-                      value={selectedCamera || ''}
-                      onChange={(e) => setSelectedCamera(e.target.value)}
-                    >
-                      {cameraList.map(cam => (
-                        <option key={cam.id} value={cam.id}>
-                          {cam.name || `Camera ${cam.id}`}
-                        </option>
-                      ))}
-                    </select>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-screen-xl mx-auto">
+            {/* Column 1 */}
+            <div className="space-y-4">
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 text-center border border-gray-700/50">
+                <h2 className="text-lg font-semibold text-white mb-2">Dominant Negative Emotion</h2>
+                {loadingAnalytics ? (
+                  <p className="text-gray-300">Loading...</p>
+                ) : dominantEmotion ? (
+                  <div className="text-3xl font-bold flex justify-center items-center gap-2 text-white">
+                    {emotionEmojis[dominantEmotion.name.toUpperCase()] || '❓'} {dominantEmotion.name}
                   </div>
-
-                  {selectedCamera ? (
-                    <img
-                      src={`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/camera_feed/${selectedCamera}`}
-                      alt="Live Feed"
-                      className="rounded-lg w-full h-64 object-cover border"
-                    />
-                  ) : (
-                    <div className="bg-gray-100 h-64 flex items-center justify-center rounded-lg">
-                      <span className="text-gray-500">Select a camera to view feed</span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="bg-white rounded-2xl shadow p-6 text-sm text-gray-600">
-              <p>
-                IP: <span className="font-mono">
-                  {cameraList.find(cam => cam.id === selectedCamera)?.ip || "N/A"}
-                </span>
-              </p>
-              <p>
-                Status:{" "}
-                <span className={
-                  (() => {
-                    const status = cameraList.find(cam => cam.id === selectedCamera)?.status;
-                    if (status === "Active") return "text-green-600";
-                    if (status === "Inactive") return "text-gray-500";
-                    if (status === "Error") return "text-red-600";
-                    return "text-yellow-500";
-                  })()
-                }>
-                  {cameraList.find(cam => cam.id === selectedCamera)?.status || "Unknown"}
-                </span>
-              </p>
-            </div>
-
-
-          </div>
-
-          {/* Column 2 */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow p-6">
-              <h3 className="text-lg font-semibold text-indigo-700 mb-4">Emotion Trend</h3>
-              {isClient ? (
-                emotionTrends ? (
-                  <div className="grid grid-cols-2 gap-4">
-                    {Object.entries(emotionTrends).map(([emotion, trend]) => {
-                      const trendIcon = {
-                        increase: '⬆️',
-                        decrease: '⬇️',
-                        'no change': '➡️',
-                      }[trend];
-
-                      const trendColor = {
-                        increase: 'text-green-600',
-                        decrease: 'text-red-600',
-                        'no change': 'text-gray-600',
-                      }[trend];
-
-                      return (
-                        <div key={emotion} className="flex items-center justify-between">
-                          <span className="font-medium text-gray-700">{emotion}</span>
-                          <span className={`font-semibold ${trendColor}`}>
-                            {trendIcon} {trend}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : <p className="text-gray-500">No data</p>
-              ) : null}
-            </div>
-
-            <div className="bg-white rounded-2xl shadow p-6">
-              <h3 className="text-lg font-semibold text-indigo-700 mb-2">
-                Emotion Intensity Over Time
-              </h3>
-              {isClient ? (
-                timelineData.length ? (
-                  <LineChart width={300} height={150} data={timelineData}>
-                    <XAxis
-                      dataKey="time"
-                      tick={{ fontSize: 10 }}
-                      interval="preserveStartEnd"
-                    // No need to format "HH:MM"
-                    />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    {negativeEmotions.map(emotion => (
-                      <Line
-                        key={emotion}
-                        type="monotone"
-                        dataKey={emotion}
-                        stroke={emotionColors[emotion]}
-                        strokeWidth={2}
-                        dot={false}
-                        strokeDasharray="3 3"
-                      />
-                    ))}
-                  </LineChart>
                 ) : (
-                  <p className="text-gray-500">No data</p>
-                )
-              ) : (
-                <p className="text-gray-400">Loading...</p>
-              )}
+                  <div className="text-gray-300">No data</div>
+                )}
+              </div>
+
+              {/* Live Feed */}
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
+                <h3 className="text-lg font-semibold text-white mb-4">Live Detection Feed</h3>
+                {loadingCameras ? (
+                  <p className="text-gray-300">Loading cameras...</p>
+                ) : (
+                  <>
+                    <div className="mb-4 flex items-center gap-2">
+                      <label className="text-sm font-medium text-white">Select Camera:</label>
+                      <select
+                        className="border border-gray-600 rounded px-2 py-1 bg-gray-800 text-white focus:border-[#2a9d8f] focus:outline-none"
+                        value={selectedCamera || ''}
+                        onChange={(e) => setSelectedCamera(e.target.value)}
+                      >
+                        {cameraList.map(cam => (
+                          <option key={cam.id} value={cam.id}>
+                            {cam.name || `Camera ${cam.id}`}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {selectedCamera ? (
+                      <img
+                        src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCamera}?t=${Date.now()}`}
+                        alt="Live Feed"
+                        className="rounded-lg w-full h-64 object-cover border border-gray-600"
+                      />
+                    ) : (
+                      <div className="bg-gray-800 h-64 flex items-center justify-center rounded-lg border border-gray-600">
+                        <span className="text-gray-300">Select a camera to view feed</span>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 text-sm border border-gray-700/50">
+                <p className="text-gray-300">
+                  Location:{' '}
+                  <span className="font-mono text-white">
+                    {cameraList.find(cam => cam.id === selectedCamera)?.label || "N/A"}
+                  </span>
+                </p>
+                <p className="text-gray-300">
+                  Status:{' '}
+                  <span
+                    className={
+                      (() => {
+                        const status = cameraList.find(cam => cam.id === selectedCamera)?.status;
+                        if (status === "Active") return "text-green-400";
+                        if (status === "Inactive") return "text-gray-400";
+                        if (status === "Error") return "text-red-400";
+                        return "text-yellow-400";
+                      })()
+                    }
+                  >
+                    {cameraList.find(cam => cam.id === selectedCamera)?.status || "Unknown"}
+                  </span>
+                </p>
+              </div>
             </div>
 
-            <div className="bg-white rounded-2xl shadow p-6 flex justify-between items-center">
-              <span className="text-sm font-medium text-gray-700">Time Range:</span>
-              <select
-                className="ml-2 border border-gray-300 rounded px-2 py-1"
-                value={timeRange}
-                onChange={(e) => setTimeRange(e.target.value)}
-              >
-                <option value="5min">Last 5 minutes</option>
-                <option value="30min">Last 30 minutes</option>
-                <option value="1hr">Last 1 hour</option>
-                <option value="today">Today</option>
-              </select>
+            {/* Column 2 */}
+            <div className="space-y-4">
+              <div className="bg-gradient-to-r from-[#264653] to-[#2a9d8f] rounded-3xl shadow-xl p-5 flex justify-between items-center cursor-pointer hover:from-[#2a9d8f] hover:to-[#264653] transition-colors duration-300">
+                <span className="text-white font-semibold text-lg select-none">
+                  Select Time Range to See Analytics
+                </span>
+                <select
+                  className="ml-4 bg-white text-indigo-700 font-semibold rounded-xl px-4 py-2 shadow-md hover:shadow-lg focus:outline-none focus:ring-4 focus:ring-indigo-300 transition"
+                  value={timeRange}
+                  onChange={(e) => setTimeRange(e.target.value)}
+                >
+                  <option value="5min">Last 5 minutes</option>
+                  <option value="30min">Last 30 minutes</option>
+                  <option value="1hr">Last 1 hour</option>
+                  <option value="today">Today</option>
+                </select>
+              </div>
+
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
+                <h3 className="text-lg font-semibold text-white mb-4">Emotion Trend</h3>
+                {isClient ? (
+                  emotionTrends ? (
+                    <div className="grid grid-cols-2 gap-4">
+                      {Object.entries(emotionTrends).map(([emotion, trend]) => {
+                        const trendIcon = {
+                          increase: '⬆️',
+                          decrease: '⬇️',
+                          'no change': '➡️',
+                        }[trend];
+                        const trendColor = {
+                          increase: 'text-green-400',
+                          decrease: 'text-red-400',
+                          'no change': 'text-gray-300',
+                        }[trend];
+
+                        return (
+                          <div key={emotion} className="flex items-center justify-between">
+                            <span className="font-medium text-white">{emotion}</span>
+                            <span className={`font-semibold ${trendColor}`}>
+                              {trendIcon} {trend}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-gray-300">No data</p>
+                  )
+                ) : null}
+              </div>
+
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  Emotion Intensity Over Time
+                </h3>
+                {isClient ? (
+                  timelineData.length ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <LineChart data={timelineData} margin={{ bottom: 30 }}>
+                        <XAxis
+                          dataKey="time"
+                          tick={{ fontSize: 10, fill: '#e5e7eb' }}
+                          interval="preserveStartEnd"
+                        />
+                        <YAxis stroke="#e5e7eb" />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#1f2937',
+                            borderRadius: '0.5rem',
+                            border: '1px solid #374151',
+                            color: '#fff',
+                          }}
+                          cursor={{ fill: '#2a9d8f22' }}
+                        />
+                        <Legend wrapperStyle={{ color: '#e5e7eb' }} />
+                        {negativeEmotions.map((emotion) => (
+                          <Line
+                            key={emotion}
+                            type="monotone"
+                            dataKey={emotion}
+                            stroke={emotionColors[emotion]}
+                            strokeWidth={2}
+                            dot={false}
+                            strokeDasharray="3 3"
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <p className="text-gray-300">No data</p>
+                  )
+                ) : (
+                  <p className="text-gray-300">Loading...</p>
+                )}
+              </div>
+
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50 space-y-2">
+                <button
+                  onClick={exportCSV}
+                  className="w-full bg-gradient-to-r from-[#264653] to-[#2a9d8f] text-white px-4 py-2 rounded hover:from-[#2a9d8f] hover:to-[#264653] transition"
+                >
+                  Export as CSV
+                </button>
+              </div>
             </div>
-            <div className="bg-white rounded-2xl shadow p-6 space-y-2">
-              <button
-                onClick={exportCSV}
-                className="w-full bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 transition"
-              >
-                Export as CSV
-              </button>
-            </div>
 
+            {/* Column 3 */}
+            <div className="space-y-4">
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
+                <h3 className="text-lg font-semibold text-white mb-2">
+                  Emotion Distribution
+                </h3>
+                {isClient ? (
+                  pieData.length ? (
+                    <div className="w-full flex justify-center">
+                      <InteractivePieChart pieData={pieData} />
+                    </div>
+                  ) : (
+                    <p className="text-gray-300">No data</p>
+                  )
+                ) : (
+                  <p className="text-gray-300">Loading...</p>
+                )}
+              </div>
 
-          </div>
-
-          {/* Column 3 */}
-          <div className="space-y-4">
-            <div className="bg-white rounded-2xl shadow p-6">
-              <h3 className="text-lg font-semibold text-indigo-700 mb-2">
-                Emotion Distribution
-              </h3>
-              {isClient ? (
-                pieData.length ? (
-                  <div className="w-full flex justify-center">
-                    <ResponsiveContainer width="100%" height={300}>
-                      <PieChart>
-                        <Pie
-                          activeIndex={0}
-                          activeShape={renderActiveShape}
-                          data={pieData}
-                          cx="55%"
-                          cy="50%"
-                          innerRadius={40}
-                          outerRadius={60}
-                          fill="#8884d8"
-                          dataKey="value"
-                          nameKey="name"
-                        >
+              <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
+                <h3 className="text-lg font-semibold text-white mb-2">Instant Emotion Count</h3>
+                {isClient ? (
+                  pieData.length ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <BarChart
+                        data={pieData}
+                        margin={{ bottom: 60 }}
+                      >
+                        <XAxis
+                          dataKey="name"
+                          stroke="#e5e7eb"
+                          interval={0}
+                          tick={{ angle: -45, textAnchor: 'end', fill: '#e5e7eb' }}
+                          height={60}
+                        />
+                        <YAxis stroke="#e5e7eb" />
+                        <Tooltip
+                          contentStyle={{
+                            backgroundColor: '#1f2937',
+                            borderRadius: '0.5rem',
+                            border: '1px solid #374151',
+                            color: '#fff',
+                          }}
+                          cursor={{ fill: '#2a9d8f22' }}
+                        />
+                        <Bar dataKey="value" radius={[8, 8, 0, 0]} fill="#2a9d8f">
                           {pieData.map((entry, index) => (
                             <Cell
                               key={`cell-${index}`}
-                              fill={emotionColors[entry.name.toUpperCase()] || '#8884d8'}
+                              fill={emotionColors[entry.name?.toUpperCase()] || '#8884d8'}
                             />
                           ))}
-                        </Pie>
-                      </PieChart>
+                        </Bar>
+                      </BarChart>
                     </ResponsiveContainer>
-
-                  </div>
-                ) : (
-                  <p className="text-gray-500">No data</p>
-                )
-              ) : (
-                <p className="text-gray-400">Loading...</p>
-              )}
-            </div>
-
-            <div className="bg-white rounded-2xl shadow p-6">
-              <h3 className="text-lg font-semibold text-indigo-700 mb-2">Instant Emotion Count</h3>
-              {isClient ? (
-                pieData.length ? (
-                  <BarChart width={300} height={150} data={pieData}>
-                    <XAxis dataKey="name" />
-                    <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="value" fill="#8884d8" />
-                  </BarChart>
-                ) : <p className="text-gray-500">No data</p>
-              ) : null}
+                  ) : (
+                    <p className="text-gray-300">No data</p>
+                  )
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

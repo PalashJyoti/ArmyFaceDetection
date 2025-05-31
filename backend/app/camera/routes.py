@@ -1,11 +1,9 @@
-from flask import Blueprint, Response, jsonify, send_from_directory, current_app, request
-from datetime import datetime, timedelta
+from flask import Blueprint, send_from_directory, Response, stream_with_context, current_app
 from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
-from app.models import DetectionLog, Camera, CameraStatus
-from collections import defaultdict
+from models import DetectionLog, Camera, CameraStatus
 from app.camera.model import predict_emotion, ResEmoteNet
-from app.extensions import db
-from pytz import timezone as pytz_timezone, utc
+from extensions import db
+import requests
 import cv2
 import os
 import base64
@@ -16,11 +14,14 @@ import time
 from sqlalchemy.exc import IntegrityError
 import numpy as np
 import torch
-import torch.nn.functional as F
-from app import emotion_detectors
-from app.camera.model import _load_model
+import torch.nn.functional as f
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+from ip import ipaddress
 
 camera_bp = Blueprint('camera_feed', __name__)
+
+IST = ZoneInfo("Asia/Kolkata")
 
 # Helper function for resizing with padding (16:9)
 def resize_and_pad(image, target_size):
@@ -59,43 +60,85 @@ def video_feed(camera_id):
 # Emotion-detected feed from background thread
 @camera_bp.route('/api/camera_feed/<int:camera_id>')
 def camera_feed(camera_id):
-    camera_manager = get_camera_manager()
+    emotion_service_url = f"http://{ipaddress}:5001/stream/{camera_id}"
 
-    def generate():
-        detector = camera_manager.emotion_detectors.get(camera_id)
-        if detector is None:
+    def external_stream():
+        try:
+            with requests.get(emotion_service_url, stream=True, timeout=5) as r:
+                r.raise_for_status()
+                for chunk in r.iter_content(chunk_size=1024):
+                    if chunk:
+                        yield chunk
+        except requests.RequestException as e:
+            current_app.logger.warning(f"External stream failed for camera_id={camera_id}: {e}")
+            raise
+
+    def fallback_stream():
+        manager = current_app.config.get('camera_manager')  # Assuming you store it in app config
+        detector = manager.get_camera(camera_id) if manager else None
+
+        if not detector:
+            # If no camera found, yield a single error frame and stop
             yield (b'--frame\r\n'
-                   b'Content-Type: text/plain\r\n\r\nCamera not initialized\r\n\r\n')
+                   b'Content-Type: text/plain\r\n\r\n'
+                   b'Camera not found or inactive.\r\n\r\n')
             return
 
         while True:
-            frame = detector.get_latest_frame()
-            if frame is not None:
-                _, buf = cv2.imencode('.jpg', frame)
-                yield (b'--frame\r\n'
-                       b'Content-Type: image/jpeg\r\n\r\n' + buf.tobytes() + b'\r\n')
-            else:
-                time.sleep(0.1)
+            frame = detector.get_frame()
+            if frame is None:
+                continue
+            yield (b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+    # Try external stream first, fallback to local feed if it fails
+    try:
+        return Response(stream_with_context(external_stream()),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
+    except requests.RequestException:
+        return Response(stream_with_context(fallback_stream()),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
 
-# Detection log API
+
 @camera_bp.route('/api/detection-logs', methods=['GET'])
 def get_detection_logs():
-    ist = pytz_timezone('Asia/Kolkata')
-    logs = DetectionLog.query.order_by(DetectionLog.timestamp.desc()).all()
+    range_filter = request.args.get('range', 'overall').lower()
+    now_ist = datetime.now(IST)  # Use IST directly
+
+    # Determine time range filter
+    if range_filter == 'weekly':
+        start_time = now_ist - timedelta(days=7)
+    elif range_filter == 'monthly':
+        start_time = now_ist - timedelta(days=30)
+    elif range_filter == 'yearly':
+        start_time = now_ist - timedelta(days=365)
+    elif range_filter == 'overall':
+        start_time = None
+    else:
+        return jsonify({"error": "Invalid range parameter"}), 400
+
+    # Fetch logs from database
+    if start_time:
+        logs = DetectionLog.query.filter(
+            DetectionLog.timestamp >= start_time
+        ).order_by(DetectionLog.timestamp.desc()).all()
+    else:
+        logs = DetectionLog.query.order_by(
+            DetectionLog.timestamp.desc()
+        ).all()
+
+    # Format logs
     result = []
     for log in logs:
-        camera = Camera.query.get(log.camera_id)
         result.append({
             'id': log.id,
-            'camera_label': camera.label if camera else 'Unknown',
+            'camera_label': getattr(log, 'camera_label', 'Unknown'),
             'emotion': log.emotion,
-            'timestamp': log.timestamp.replace(tzinfo=utc).astimezone(ist).strftime('%b %d, %Y, %I:%M %p') if log.timestamp else None,
-            'image_url': f"/{log.image_path}"
+            'timestamp': log.timestamp.strftime('%b %d, %Y, %I:%M %p') if log.timestamp else None,
+            'image_url': f"/{log.image_path}" if log.image_path else None
         })
-    return jsonify(result)
 
+    return jsonify(result)
 # Serve alert screenshots
 @camera_bp.route('/alerts/<path:filename>')
 def serve_alert_image(filename):
@@ -184,7 +227,7 @@ def get_detection_analytics():
     time_range = request.args.get('range', '5m')
     now_utc = datetime.utcnow().replace(tzinfo=utc)
 
-    # Determine time delta
+    # Define time deltas for short ranges
     time_deltas = {
         '5m': timedelta(minutes=5),
         '30m': timedelta(minutes=30),
@@ -193,55 +236,54 @@ def get_detection_analytics():
 
     if time_range == 'today':
         now_ist = now_utc.astimezone(ist)
-        since = now_ist.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(utc)
+        since_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        since = since_ist.astimezone(utc)
         delta = now_utc - since
     else:
         delta = time_deltas.get(time_range, timedelta(minutes=5))  # fallback to 5m
         since = now_utc - delta
 
-    # Fetch logs for current time window
+    # Fetch logs within time window
     logs = DetectionLog.query.filter(
         DetectionLog.timestamp >= since
     ).order_by(DetectionLog.timestamp.asc()).all()
 
-    # --- Aggregate Emotion Counts ---
-    emotion_counts = {}
+    # Aggregate emotion counts for the current period
+    emotion_counts = defaultdict(int)
     for log in logs:
         emotion = log.emotion.upper()
-        emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
+        emotion_counts[emotion] += 1
 
     total = sum(emotion_counts.values())
 
-    pie_data = [{'name': k, 'value': v} for k, v in emotion_counts.items()]
+    pie_data = [{'name': emo, 'value': count} for emo, count in emotion_counts.items()]
     pie_percentage_data = [
-        {'name': k, 'value': v, 'percentage': round(v / total * 100, 2)}
-        for k, v in emotion_counts.items()
+        {'name': emo, 'value': count, 'percentage': round(count / total * 100, 2)}
+        for emo, count in emotion_counts.items()
     ] if total > 0 else []
 
     most_frequent_emotion = max(emotion_counts, key=emotion_counts.get) if emotion_counts else None
 
-    # --- Timeline Aggregation ---
-    timeline_buckets = defaultdict(lambda: {'FEAR': 0, 'ANGER': 0, 'SADNESS': 0, 'DISGUST': 0})
+    # Timeline aggregation with fixed emotions only
+    emotions = ['FEAR', 'ANGER', 'SADNESS', 'DISGUST']
+    timeline_buckets = defaultdict(lambda: {emo: 0 for emo in emotions})
 
     def bucket_time(ts):
         ts_ist = ts.replace(tzinfo=utc).astimezone(ist)
-        minute = (ts_ist.minute // 5) * 5
-        return ts_ist.replace(minute=minute, second=0, microsecond=0).strftime('%H:%M')
+        minute_bucket = (ts_ist.minute // 5) * 5
+        return ts_ist.replace(minute=minute_bucket, second=0, microsecond=0).strftime('%H:%M')
 
     for log in logs:
         if not log.timestamp:
             continue
         bucket = bucket_time(log.timestamp)
-        emotion = log.emotion.upper()
-        if emotion in timeline_buckets[bucket]:
-            timeline_buckets[bucket][emotion] += 1
+        emo = log.emotion.upper()
+        if emo in emotions:
+            timeline_buckets[bucket][emo] += 1
 
-    timeline_data = [
-        {'time': time_label, **timeline_buckets[time_label]}
-        for time_label in sorted(timeline_buckets)
-    ]
+    timeline_data = [{'time': time_label, **timeline_buckets[time_label]} for time_label in sorted(timeline_buckets)]
 
-    # --- Emotion Trend (current vs previous) ---
+    # Previous period for trend comparison
     previous_since = since - delta
     previous_until = since
 
@@ -250,41 +292,48 @@ def get_detection_analytics():
         DetectionLog.timestamp < previous_until
     ).all()
 
-    previous_emotion_counts = {}
+    previous_emotion_counts = defaultdict(int)
     for log in previous_logs:
-        emotion = log.emotion.upper()
-        previous_emotion_counts[emotion] = previous_emotion_counts.get(emotion, 0) + 1
+        emo = log.emotion.upper()
+        previous_emotion_counts[emo] += 1
 
-    emotions = ['FEAR', 'ANGER', 'SADNESS', 'DISGUST']
     trend = {}
-    for emotion in emotions:
-        current = emotion_counts.get(emotion, 0)
-        previous = previous_emotion_counts.get(emotion, 0)
+    for emo in emotions:
+        current = emotion_counts.get(emo, 0)
+        previous = previous_emotion_counts.get(emo, 0)
         if previous == 0:
-            trend[emotion] = 'increase' if current > 0 else 'no change'
+            trend[emo] = 'increase' if current > 0 else 'no change'
         else:
-            trend[emotion] = 'increase' if current > previous else 'decrease' if current < previous else 'no change'
+            if current > previous:
+                trend[emo] = 'increase'
+            elif current < previous:
+                trend[emo] = 'decrease'
+            else:
+                trend[emo] = 'no change'
 
-    # --- Peak Times ---
+    # Peak times per emotion
     peak_times = {}
-    for emotion in emotions:
-        peak = max(timeline_buckets.items(), key=lambda x: x[1][emotion], default=(None, {}))[0]
-        peak_times[emotion] = peak
+    for emo in emotions:
+        peak_time, _ = max(timeline_buckets.items(), key=lambda x: x[1].get(emo, 0), default=(None, {}))
+        peak_times[emo] = peak_time
 
-    emotion_confidence_sums = defaultdict(float)
-    emotion_counts_for_confidence = defaultdict(int)
+    # Average confidence (intensity) per emotion
+    confidence_sums = defaultdict(float)
+    confidence_counts = defaultdict(int)
 
     for log in logs:
         if log.confidence is None:
-            continue  # skip if no confidence value
-
-        emotion = log.emotion.upper()
-        emotion_confidence_sums[emotion] += log.confidence
-        emotion_counts_for_confidence[emotion] += 1
+            continue
+        emo = log.emotion.upper()
+        confidence_sums[emo] += log.confidence
+        confidence_counts[emo] += 1
 
     avg_intensity = [
-        {"name": emotion, "value": round(emotion_confidence_sums[emotion] / emotion_counts_for_confidence[emotion], 2)}
-        for emotion in emotion_counts_for_confidence
+        {
+            "name": emo,
+            "value": round(confidence_sums[emo] / confidence_counts[emo], 2)
+        }
+        for emo in confidence_counts
     ]
 
     return jsonify({
@@ -298,7 +347,8 @@ def get_detection_analytics():
         'avg_intensity': avg_intensity
     })
 
-@camera_bp.route('/<int:camera_id>', methods=['GET'])
+
+@camera_bp.route('/api/cameras/<int:camera_id>', methods=['GET'])
 def get_camera(camera_id):
     camera = Camera.query.get(camera_id)
     if not camera:
@@ -314,6 +364,7 @@ def create_camera():
         return jsonify({'error': 'Missing required fields'}), 400
 
     try:
+        # Save to DB
         camera = Camera(
             label=data['label'],
             ip=data['ip'],
@@ -322,10 +373,11 @@ def create_camera():
         )
         db.session.add(camera)
         db.session.commit()
+
         return jsonify(camera.to_dict()), 201
+
     except Exception as e:
         db.session.rollback()
-        print(f"Error adding camera: {e}")  # Log error on backend console
         return jsonify({'error': str(e)}), 400
 
 
@@ -335,8 +387,22 @@ def delete_camera(camera_id):
     if not camera:
         return jsonify({'error': 'Camera not found'}), 404
 
+    # Notify emotion detection service to stop the camera detector
+    try:
+        # Replace this URL if your emotion service runs on a different host/port
+        response = requests.post(
+            f'http://{ipaddress}/camera_status_update',
+            json={'camera_id': camera_id, 'status': 'Inactive'},
+            timeout=3
+        )
+        if response.status_code != 200:
+            print(f"[WARN] Failed to notify emotion detection service: {response.text}")
+    except Exception as e:
+        print(f"[ERROR] Could not reach emotion detection service: {e}")
+
     db.session.delete(camera)
     db.session.commit()
+
     return jsonify({'message': 'Camera deleted successfully'}), 200
 
 
@@ -358,40 +424,65 @@ def update_camera_status(camera_id):
 
 @camera_bp.route('/api/cameras/update/<int:camera_id>', methods=['PUT'])
 def update_camera(camera_id):
-    data = request.get_json()
+    from models import Camera, CameraStatus
+    from extensions import db
+    import requests
 
+    data = request.get_json()
     if not data:
         return jsonify({'error': 'No input data provided'}), 400
 
-    # Validate required fields
     label = data.get('label')
     ip = data.get('ip')
+    src = data.get('src')  # <-- new field
     status = data.get('status')
 
-    if not label or not ip or not status:
-        return jsonify({'error': 'label, ip, and status are required'}), 400
+    # Validate required fields (including src)
+    if not label or not ip or not src or not status:
+        return jsonify({'error': 'label, ip, src, and status are required'}), 400
 
-    if status not in CameraStatus.__members__ and status not in [e.value for e in CameraStatus]:
-        return jsonify({'error': f'Invalid status value. Must be one of {[e.value for e in CameraStatus]}'}), 400
+    valid_status_values = [e.value for e in CameraStatus]
+    if status not in CameraStatus.__members__ and status not in valid_status_values:
+        return jsonify({'error': f'Invalid status value. Must be one of {valid_status_values}'}), 400
 
     camera = Camera.query.get(camera_id)
     if not camera:
         return jsonify({'error': 'Camera not found'}), 404
 
-    # Update fields
+    # Convert status string to Enum
+    if isinstance(status, str):
+        try:
+            camera.status = CameraStatus[status]
+        except KeyError:
+            camera.status = CameraStatus(status)
+    else:
+        camera.status = status
+
     camera.label = label
     camera.ip = ip
-    camera.status = CameraStatus(status) if isinstance(status, str) else status
+    camera.src = src   # <-- update src here
 
     try:
         db.session.commit()
-        return jsonify(camera.to_dict()), 200
-    except IntegrityError as e:
+    except IntegrityError:
         db.session.rollback()
-        return jsonify({'error': 'Label or IP must be unique, conflict detected'}), 409
-    except Exception as e:
+        return jsonify({'error': 'Label, IP, or src must be unique, conflict detected'}), 409
+    except Exception:
         db.session.rollback()
         return jsonify({'error': 'Failed to update camera'}), 500
+
+    # Notify emotion worker service
+    try:
+        requests.post(f"http://{ipaddress}:5001/camera_status_update", json={
+            "camera_id": camera_id,
+            "status": camera.status.name  # "Active" or "Inactive"
+        })
+        print(f"📡 Notified emotion_worker_service of status change for camera {camera_id}")
+    except requests.exceptions.RequestException as e:
+        print(f"⚠️ Failed to notify emotion_worker_service: {e}")
+
+    return jsonify(camera.to_dict()), 200
+
 
 
 UPLOAD_FOLDER = 'uploads'
@@ -428,7 +519,7 @@ def run_emotion_detection(input_path, output_path):
         frame_tensor = transform(Image.fromarray(frame)).unsqueeze(0).to(device)
         with torch.no_grad():
             outputs = model(frame_tensor)
-            probs = F.softmax(outputs, dim=1)
+            probs = f.softmax(outputs, dim=1)
         return probs.cpu().numpy().flatten()
 
     while True:
@@ -531,7 +622,7 @@ def detect_emotion(pil_img):
     input_tensor = transform(pil_img).unsqueeze(0).to(device)
     with torch.no_grad():
         output = model(input_tensor)
-        probabilities = F.softmax(output, dim=1)
+        probabilities = f.softmax(output, dim=1)
     scores = probabilities.cpu().numpy().flatten()
     return scores
 

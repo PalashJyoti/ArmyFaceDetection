@@ -2,10 +2,14 @@ import React from 'react';
 
 const AuthNav = () => {
   return (
-    <nav className="bg-white shadow fixed top-0 left-0 right-0 z-50 h-16 flex items-center">
-      <div className="max-w-7xl mx-auto px-6 sm:px-12 w-full flex justify-between items-center">
-        <div className="text-2xl font-bold text-indigo-700">
-          <a href="/">MindSight AI</a>
+    <nav className="sticky top-0 z-50 bg-gradient-to-r from-neutral-900/95 to-neutral-800/95 shadow-lg backdrop-blur-md">
+      <div className="h-16 px-6 max-w-screen-xl mx-auto flex justify-between items-center">
+        <div
+          className="text-2xl font-bold tracking-wide text-blue-200 whitespace-nowrap hover:text-white transition-colors cursor-pointer"
+        >
+          <a href='/'>
+          MindSight AI
+          </a>
         </div>
       </div>
     </nav>

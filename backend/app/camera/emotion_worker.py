@@ -1,16 +1,8 @@
 import datetime
-import os
-import threading
-import time
-from collections import defaultdict
 
-import cv2
 from sqlalchemy.orm import scoped_session, sessionmaker
 
-from app.camera.camera_manager import get_camera_manager
-from app.camera.model import predict_emotion
-from app.extensions import db
-from app.models import DetectionLog
+from extensions import db
 
 Session = scoped_session(sessionmaker(bind=db.engine))
 
@@ -173,7 +165,7 @@ import cv2
 import os
 from datetime import datetime
 from app.camera.model import predict_emotion
-from app.models import DetectionLog
+from models import DetectionLog
 from app import db
 
 NEGATIVE_EMOTIONS = {'fear', 'anger', 'sadness', 'disgust'}
@@ -247,7 +239,7 @@ class EmotionDetectorThread(threading.Thread):
             face_img = frame[y:y+h, x:x+w]
 
             emotion, confidence = predict_emotion(face_img, self.model_path)
-            print(f"[EmotionDetectorThread] Detected emotion: {emotion} with confidence {confidence:.2f} on camera {self.cam_id}")
+            # print(f"[EmotionDetectorThread] Detected emotion: {emotion} with confidence {confidence:.2f} on camera {self.cam_id}")
 
             # Draw rectangle around face
             cv2.rectangle(frame, (x, y), (x+w, y+h), (0, 255, 0), 15)

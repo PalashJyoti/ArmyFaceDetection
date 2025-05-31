@@ -52,7 +52,7 @@ const WebcamEmotionComponent = () => {
     const imageBase64 = canvas.toDataURL('image/jpeg');
 
     try {
-      const res = await fetch('http://localhost:5000/api/emotion-detect', {
+      const res = await fetch(`http://localhost:5000/api/emotion-detect`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: imageBase64 })

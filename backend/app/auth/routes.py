@@ -1,8 +1,8 @@
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, timezone, timedelta
 from functools import wraps
-from app.extensions import db
-from app.models import User
+from extensions import db
+from models import User
 import pyotp
 import qrcode
 import io

@@ -1,13 +1,15 @@
 from flask import Flask
 from flask_cors import CORS
 import pyotp
-from app.extensions import db
+from extensions import db
 import os
+import sys
 from sqlalchemy import inspect
-from app.models import DetectionLog, Camera, User, CameraStatus
-from app.camera.camera_manager import init_camera_manager
+from models import User, Camera, CameraStatus
+from ip import ipaddress
 
-emotion_detectors = {}
+# Add parent directory to sys.path so we can import from it
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 def create_app():
     # Get path to parent directory (backend/)
@@ -23,7 +25,7 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
     db.init_app(app)
-    CORS(app)
+    CORS(app, origins=[f"http://{ipaddress}:3000","http://localhost:3000"], supports_credentials=True)
 
     from app.auth.routes import auth_bp
     from app.camera.routes import camera_bp
@@ -85,26 +87,8 @@ def create_app():
         else:
             print("🎥 Test video camera already exists.")
 
-        # --- Load cameras into camera_manager ---
-        init_camera_manager()  # Initializes the global camera_manager
-
-        # --- Start emotion detector threads ---
-        start_emotion_threads(app)
+        # --- Initialize camera_manager but do NOT start emotion detectors ---
+        from app.camera.camera_manager import init_camera_manager
+        init_camera_manager()  # Initializes camera_manager but no threads started here
 
     return app
-
-
-def start_emotion_threads(app):
-    from app.camera.camera_manager import get_camera_manager
-    from app.camera.emotion_worker import EmotionDetectorThread
-    import os
-
-    camera_manager = get_camera_manager()
-    model_path = os.path.abspath("app/camera/fer_model.pth")
-    camera_manager.emotion_detectors = {}  # attach it to camera_manager
-
-    for cam_id in camera_manager.cameras:
-        detector = EmotionDetectorThread(cam_id, model_path, app)
-        camera_manager.emotion_detectors[cam_id] = detector
-        detector.start()   # <-- Start the thread here
-        print(f"[init] Started emotion detector thread for camera {cam_id}")
