@@ -5,7 +5,7 @@ from models import Camera, CameraStatus
 
 # Configure logger
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # Optional: Add console handler if not already configured globally
 if not logger.handlers:
@@ -29,16 +29,16 @@ class MultiCameraManager:
             self.detectors[cam_id] = detector
             logger.info(f"Started detector for camera {cam_id}")
         else:
-            logger.warning(f"Camera {cam_id} already exists.")
+            logger.debug(f"Camera {cam_id} already exists.")
 
     def remove_camera(self, cam_id):
         detector = self.detectors.pop(cam_id, None)
         if detector:
             detector.stop()
             detector.join()
-            logger.info(f"Stopped detector for camera {cam_id}")
+            logger.debug(f"Stopped detector for camera {cam_id}")
         else:
-            logger.warning(f"Attempted to remove unknown camera {cam_id}")
+            logger.debug(f"Attempted to remove unknown camera {cam_id}")
 
     def cleanup_inactive_cameras(self):
         with self.app.app_context():
@@ -60,7 +60,7 @@ class MultiCameraManager:
         if detector:
             return detector.get_latest_frame()
         else:
-            logger.warning(f"No frame available for camera {cam_id}")
+            logger.debug(f"No frame available for camera {cam_id}")
             return None
 
     def stop_all(self):

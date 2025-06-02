@@ -3,7 +3,7 @@ import axios from 'axios';
 
 const instance = axios.create({
   baseURL: process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL,
-   headers: {
+  headers: {
     'Content-Type': 'application/json',
   },
 });
@@ -28,10 +28,17 @@ instance.interceptors.response.use(
       const status = error.response.status;
 
       if (status === 401) {
-        alert('Your session has expired. Please log in again.');
-        localStorage.removeItem('token');
-        window.location.href = '/login';
-      } else if (status === 403) {
+        const message = error.response.data?.error || '';
+
+        if (message === 'Invalid TOTP') {
+          alert('Invalid TOTP. Please try again.');
+        } else {
+          alert('Your session has expired. Please log in again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+        }
+      }
+      else if (status === 403) {
         console.warn('403 Forbidden:', error.response?.data || '');
       } else if (status === 404) {
         alert('Requested resource not found.');

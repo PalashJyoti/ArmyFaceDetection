@@ -68,24 +68,24 @@ def create_app():
         else:
             print("✅ Permanent admin already exists.")
 
-        # --- Add test video camera (for development) ---
-        test_label = "Test Video Camera"
-        test_src = "app/camera/video.mp4"
-        test_ip = "127.0.0.1"  # dummy IP for required field
-
-        existing_camera = Camera.query.filter_by(label=test_label).first()
-        if not existing_camera:
-            test_camera = Camera(
-                label=test_label,
-                ip=test_ip,
-                src=test_src,
-                status=CameraStatus.Active
-            )
-            db.session.add(test_camera)
-            db.session.commit()
-            print(f"🎥 Test video camera added with src: {test_src}")
-        else:
-            print("🎥 Test video camera already exists.")
+        # # --- Add test video camera (for development) ---
+        # test_label = "Test Video Camera"
+        # test_src = "app/camera/video.mp4"
+        # test_ip = "127.0.0.1"  # dummy IP for required field
+        #
+        # existing_camera = Camera.query.filter_by(label=test_label).first()
+        # if not existing_camera:
+        #     test_camera = Camera(
+        #         label=test_label,
+        #         ip=test_ip,
+        #         src=test_src,
+        #         status=CameraStatus.Active
+        #     )
+        #     db.session.add(test_camera)
+        #     db.session.commit()
+        #     print(f"🎥 Test video camera added with src: {test_src}")
+        # else:
+        #     print("🎥 Test video camera already exists.")
 
         # --- Initialize camera_manager but do NOT start emotion detectors ---
         from app.camera.camera_manager import init_camera_manager

@@ -116,7 +116,7 @@ def verify_totp():
         jwt_token = create_jwt(user)
         return jsonify({'token': jwt_token}), 200
     else:
-        return jsonify({'error': 'Invalid token'}), 401
+        return jsonify({'error': 'Invalid TOTP'}), 401
 
 @auth_bp.route('/verify-totp-for-reset', methods=['POST'])
 def verify_totp_for_reset():

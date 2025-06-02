@@ -287,7 +287,7 @@ const Dashboard = () => {
       <Navbar onLogout={handleLogout} />
       <div
         className="min-h-screen bg-cover bg-center p-6"
-        style={{ backgroundImage: `url('/image-8.png')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
+        style={{ backgroundImage: `url('/AI.jpg')`, backgroundSize: 'cover', backgroundPosition: 'center' }}
       >
         {/* Dark overlay for better text readability */}
         <div className="absolute inset-0 bg-black/40 z-0"></div>
