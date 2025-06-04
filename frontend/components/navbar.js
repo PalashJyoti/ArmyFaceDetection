@@ -9,35 +9,27 @@ const Navbar = () => {
   const router = useRouter();
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
+    if (typeof window !== 'undefined') {
       const token = localStorage.getItem('token');
+
       if (token) {
         try {
           const decodedUser = jwtDecode(token);
           setUser(decodedUser);
         } catch (error) {
-          console.error("Invalid token:", error);
+          console.error('Invalid token:', error);
           setUser(null);
         }
+      } else {
+        setUser(null); // Ensure user is cleared if no token exists
       }
     }
   }, []);
 
-  const handleLogout = async () => {
-    const token = localStorage.getItem('token');
 
-    try {
-      await axios.post('/api/auth/logout', null, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      localStorage.removeItem('token');
-      router.push('/login');
-    } catch (err) {
-      alert(err.response?.data?.error || 'Logout failed');
-    }
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    router.push('/login');
   };
 
   const navigate = (path) => {

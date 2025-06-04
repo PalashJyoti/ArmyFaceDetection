@@ -13,7 +13,7 @@ const nextConfig = {
   },
 
   // Optional: fix CORS warning for LAN development
-  allowedDevOrigins: ['http://192.168.29.56'],
+  // allowedDevOrigins: ['http://192.168.29.56'],
 };
 
 export default nextConfig;

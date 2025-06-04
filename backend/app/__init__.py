@@ -88,7 +88,7 @@ def create_app():
         #     print("🎥 Test video camera already exists.")
 
         # --- Initialize camera_manager but do NOT start emotion detectors ---
-        from app.camera.camera_manager import init_camera_manager
-        init_camera_manager()  # Initializes camera_manager but no threads started here
+        # from app.camera.camera_manager import init_camera_manager
+        # init_camera_manager()  # Initializes camera_manager but no threads started here
 
     return app

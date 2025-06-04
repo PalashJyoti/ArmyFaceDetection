@@ -18,7 +18,15 @@ if not logger.hasHandlers():
 app = create_app()
 model_path = "emotion_detection_service/fer_model.pth"
 
+# Module-level variable
+cleanup_thread_started = False
+
 def start_cleanup_loop(camera_manager, interval=30):
+    global cleanup_thread_started
+    if cleanup_thread_started:
+        logger.warning("Cleanup loop already started.")
+        return None  # Or return existing thread if you're keeping it
+
     def cleanup_loop():
         logger.info("Starting cleanup loop thread.")
         while True:
@@ -31,8 +39,8 @@ def start_cleanup_loop(camera_manager, interval=30):
 
     thread = threading.Thread(target=cleanup_loop, daemon=True)
     thread.start()
+    cleanup_thread_started = True
     return thread
-
 
 def run_flask():
     logger.info("Starting Flask server on 0.0.0.0:5001")
@@ -49,7 +57,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     globals_module.manager = init_camera_manager(model_path=model_path, app=app)
-    cleanup_thread = start_cleanup_loop(globals_module.manager, interval=10)
+    cleanup_thread = start_cleanup_loop(globals_module.manager)
 
     with app.app_context():
         active_cameras = Camera.query.filter_by(status=CameraStatus.Active).all()

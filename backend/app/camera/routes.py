@@ -1,4 +1,4 @@
-from flask import Blueprint, send_from_directory, Response, stream_with_context, current_app
+from flask import Blueprint, send_from_directory, Response, stream_with_context, current_app, jsonify, request
 from app.camera.camera_manager import get_camera_manager  # Use the singleton manager already created
 from models import DetectionLog, Camera, CameraStatus
 from app.camera.model import predict_emotion, ResEmoteNet
@@ -18,6 +18,12 @@ import torch.nn.functional as f
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from ip import ipaddress
+
+
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+from pytz import timezone as pytz_timezone, utc
 
 camera_bp = Blueprint('camera_feed', __name__)
 
@@ -41,21 +47,21 @@ def resize_and_pad(image, target_size):
 # and already loaded cameras from the database on app start.
 
 # Raw feed route (no detection)
-@camera_bp.route('/video_feed/<int:camera_id>')
-def video_feed(camera_id):
-    def generate():
-        target_width, target_height = 640, 360
-        while True:
-            frame = get_camera_manager().get_frame(camera_id)
-            if frame is not None:
-                frame = resize_and_pad(frame, (target_width, target_height))
-                ret, buffer = cv2.imencode('.jpg', frame)
-                if ret:
-                    yield (b'--frame\r\n'
-                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
-            else:
-                time.sleep(0.1)
-    return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
+# @camera_bp.route('/video_feed/<int:camera_id>')
+# def video_feed(camera_id):
+#     def generate():
+#         target_width, target_height = 640, 360
+#         while True:
+#             frame = get_camera_manager().get_frame(camera_id)
+#             if frame is not None:
+#                 frame = resize_and_pad(frame, (target_width, target_height))
+#                 ret, buffer = cv2.imencode('.jpg', frame)
+#                 if ret:
+#                     yield (b'--frame\r\n'
+#                            b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+#             else:
+#                 time.sleep(0.1)
+#     return Response(generate(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 # Emotion-detected feed from background thread
 @camera_bp.route('/api/camera_feed/<int:camera_id>')
@@ -71,33 +77,12 @@ def camera_feed(camera_id):
                         yield chunk
         except requests.RequestException as e:
             current_app.logger.warning(f"External stream failed for camera_id={camera_id}: {e}")
+            # Raise to propagate the error and return HTTP 500
             raise
 
-    def fallback_stream():
-        manager = current_app.config.get('camera_manager')  # Assuming you store it in app config
-        detector = manager.get_camera(camera_id) if manager else None
+    return Response(stream_with_context(external_stream()),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
-        if not detector:
-            # If no camera found, yield a single error frame and stop
-            yield (b'--frame\r\n'
-                   b'Content-Type: text/plain\r\n\r\n'
-                   b'Camera not found or inactive.\r\n\r\n')
-            return
-
-        while True:
-            frame = detector.get_frame()
-            if frame is None:
-                continue
-            yield (b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
-
-    # Try external stream first, fallback to local feed if it fails
-    try:
-        return Response(stream_with_context(external_stream()),
-                        mimetype='multipart/x-mixed-replace; boundary=frame')
-    except requests.RequestException:
-        return Response(stream_with_context(fallback_stream()),
-                        mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 @camera_bp.route('/api/detection-logs', methods=['GET'])
@@ -150,71 +135,6 @@ def serve_alert_image(filename):
 def get_cameras():
     cameras = Camera.query.all()
     return jsonify([camera.to_dict() for camera in cameras])
-
-
-# @camera_bp.route('/api/detection-analytics', methods=['GET'])
-# def get_detection_analytics():
-#     ist = pytz_timezone('Asia/Kolkata')
-#
-#     # Handle time range filtering
-#     time_range = request.args.get('range', '5m')
-#     now_utc = datetime.utcnow().replace(tzinfo=utc)
-#
-#     if time_range == '5m':
-#         since = now_utc - timedelta(minutes=5)
-#     elif time_range == '30m':
-#         since = now_utc - timedelta(minutes=30)
-#     elif time_range == '1h':
-#         since = now_utc - timedelta(hours=1)
-#     elif time_range == 'today':
-#         now_ist = now_utc.astimezone(ist)
-#         since = now_ist.replace(hour=0, minute=0, second=0, microsecond=0).astimezone(utc)
-#     else:
-#         since = now_utc - timedelta(minutes=5)  # Default fallback
-#
-#     # Fetch filtered logs
-#     logs = DetectionLog.query.filter(DetectionLog.timestamp >= since).order_by(DetectionLog.timestamp.asc()).all()
-#
-#     # Pie chart aggregation
-#     emotion_counts = {}
-#     for log in logs:
-#         emotion = log.emotion.upper()
-#         emotion_counts[emotion] = emotion_counts.get(emotion, 0) + 1
-#
-#     pie_data = [{'name': k, 'value': v} for k, v in emotion_counts.items()]
-#
-#     # Timeline aggregation (5-minute buckets)
-#     timeline_buckets = defaultdict(lambda: {'FEAR': 0, 'ANGER': 0, 'SADNESS': 0, 'DISGUST': 0})
-#
-#     def bucket_time(ts):
-#         ts_ist = ts.replace(tzinfo=utc).astimezone(ist)
-#         minute = (ts_ist.minute // 5) * 5
-#         return ts_ist.replace(minute=minute, second=0, microsecond=0).strftime('%H:%M')
-#
-#     for log in logs:
-#         if not log.timestamp:
-#             continue
-#         bucket = bucket_time(log.timestamp)
-#         emotion = log.emotion.upper()
-#         if emotion in timeline_buckets[bucket]:
-#             timeline_buckets[bucket][emotion] += 1
-#
-#     timeline_data = []
-#     for time_label in sorted(timeline_buckets.keys()):
-#         data_point = {'time': time_label}
-#         data_point.update(timeline_buckets[time_label])
-#         timeline_data.append(data_point)
-#
-#     return jsonify({
-#         'pie_data': pie_data,
-#         'timeline_data': timeline_data,
-#     })
-
-
-from collections import defaultdict
-from datetime import datetime, timedelta
-from flask import jsonify, request
-from pytz import timezone as pytz_timezone, utc
 
 
 @camera_bp.route('/api/detection-analytics', methods=['GET'])
@@ -658,3 +578,247 @@ def emotion_detect():
         import traceback
         print("Error:", traceback.format_exc())
         return jsonify({"error": "Server error"}), 500
+
+
+
+# log deletion routes
+@camera_bp.route('/api/detection-logs/<int:log_id>', methods=['DELETE'])
+def delete_detection_log(log_id):
+    """Delete a specific detection log by ID"""
+    try:
+        # Find the detection log
+        log = DetectionLog.query.get(log_id)
+
+        if not log:
+            return jsonify({
+                'success': False,
+                'message': 'Detection log not found'
+            }), 404
+
+        # Store image path before deletion (if we need to delete the file)
+        image_path = log.image_path
+
+        # Delete the log from database
+        db.session.delete(log)
+        db.session.commit()
+
+        # Optionally delete the associated image file if it exists
+        if image_path and os.path.exists(image_path):
+            try:
+                os.remove(image_path)
+            except OSError as e:
+                print(f"Warning: Could not delete image file {image_path}: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': 'Detection log deleted successfully'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting detection log: {str(e)}'
+        }), 500
+
+
+@camera_bp.route('/api/detection-logs/bulk', methods=['DELETE'])
+def bulk_delete_detection_logs():
+    """Delete multiple detection logs by IDs"""
+    try:
+        data = request.get_json()
+        if not data or 'ids' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'No log IDs provided'
+            }), 400
+
+        log_ids = data['ids']
+        if not isinstance(log_ids, list) or not log_ids:
+            return jsonify({
+                'success': False,
+                'message': 'Invalid log IDs format'
+            }), 400
+
+        # Find all logs to delete
+        logs = DetectionLog.query.filter(DetectionLog.id.in_(log_ids)).all()
+
+        if not logs:
+            return jsonify({
+                'success': False,
+                'message': 'No logs found with provided IDs'
+            }), 404
+
+        # Collect image paths before deletion
+        image_paths = [log.image_path for log in logs if log.image_path]
+
+        # Delete logs from database
+        deleted_count = 0
+        for log in logs:
+            db.session.delete(log)
+            deleted_count += 1
+
+        db.session.commit()
+
+        # Delete associated image files
+        deleted_images = 0
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    deleted_images += 1
+                except OSError as e:
+                    print(f"Warning: Could not delete image file {image_path}: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} detection logs and {deleted_images} image files'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting detection logs: {str(e)}'
+        }), 500
+
+
+@camera_bp.route('/api/detection-logs/camera/<int:camera_id>', methods=['DELETE'])
+def delete_logs_by_camera(camera_id):
+    """Delete all detection logs for a specific camera"""
+    try:
+        # Find all logs for the camera
+        logs = DetectionLog.query.filter_by(camera_id=camera_id).all()
+
+        if not logs:
+            return jsonify({
+                'success': True,
+                'message': f'No logs found for camera ID {camera_id}'
+            }), 200
+
+        # Collect image paths before deletion
+        image_paths = [log.image_path for log in logs if log.image_path]
+
+        # Delete logs from database
+        deleted_count = DetectionLog.query.filter_by(camera_id=camera_id).delete()
+        db.session.commit()
+
+        # Delete associated image files
+        deleted_images = 0
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    deleted_images += 1
+                except OSError as e:
+                    print(f"Warning: Could not delete image file {image_path}: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} detection logs for camera {camera_id} and {deleted_images} image files'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting logs for camera {camera_id}: {str(e)}'
+        }), 500
+
+
+@camera_bp.route('/api/detection-logs/clear-all', methods=['DELETE'])
+def clear_all_detection_logs():
+    """Delete ALL detection logs (use with caution)"""
+    try:
+        # Get confirmation parameter (optional safety check)
+        confirm = request.args.get('confirm', '').lower()
+        if confirm != 'true':
+            return jsonify({
+                'success': False,
+                'message': 'This action requires confirmation. Add ?confirm=true to the URL'
+            }), 400
+
+        # Get all logs to collect image paths
+        logs = DetectionLog.query.all()
+        image_paths = [log.image_path for log in logs if log.image_path]
+
+        # Delete all logs
+        deleted_count = DetectionLog.query.delete()
+        db.session.commit()
+
+        # Delete all associated image files
+        deleted_images = 0
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    deleted_images += 1
+                except OSError as e:
+                    print(f"Warning: Could not delete image file {image_path}: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted all {deleted_count} detection logs and {deleted_images} image files'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'Error clearing all detection logs: {str(e)}'
+        }), 500
+
+
+@camera_bp.route('/api/detection-logs/cleanup-old', methods=['DELETE'])
+def cleanup_old_detection_logs():
+    """Delete detection logs older than specified days"""
+    try:
+        # Get days parameter (default to 30 days)
+        days = request.args.get('days', 30, type=int)
+
+        if days <= 0:
+            return jsonify({
+                'success': False,
+                'message': 'Days parameter must be positive'
+            }), 400
+
+        from datetime import datetime, timedelta
+        cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+        # Find old logs
+        old_logs = DetectionLog.query.filter(DetectionLog.timestamp < cutoff_date).all()
+
+        if not old_logs:
+            return jsonify({
+                'success': True,
+                'message': f'No logs older than {days} days found'
+            }), 200
+
+        # Collect image paths before deletion
+        image_paths = [log.image_path for log in old_logs if log.image_path]
+
+        # Delete old logs
+        deleted_count = DetectionLog.query.filter(DetectionLog.timestamp < cutoff_date).delete()
+        db.session.commit()
+
+        # Delete associated image files
+        deleted_images = 0
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                try:
+                    os.remove(image_path)
+                    deleted_images += 1
+                except OSError as e:
+                    print(f"Warning: Could not delete image file {image_path}: {e}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Successfully deleted {deleted_count} logs older than {days} days and {deleted_images} image files'
+        }), 200
+
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': f'Error cleaning up old detection logs: {str(e)}'
+        }), 500

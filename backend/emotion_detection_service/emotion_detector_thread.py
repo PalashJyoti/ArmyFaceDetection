@@ -15,7 +15,6 @@ from emotion_detection_service.predict import predict_emotion
 from extensions import db
 from models import DetectionLog, Camera, CameraStatus
 
-
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.WARN)
@@ -29,7 +28,6 @@ if not logger.handlers:  # Avoid duplicate logs
 
 FACE_DETECTOR_PROTO = "emotion_detection_service/deploy.prototxt"
 FACE_DETECTOR_MODEL = "emotion_detection_service/res10_300x300_ssd_iter_140000.caffemodel"
-
 
 IST = ZoneInfo("Asia/Kolkata")  # Indian Standard Time
 
@@ -77,11 +75,56 @@ class EmotionDetectorThread(threading.Thread):
         self.grab_thread.daemon = True
         self.grab_thread.start()
 
-    def detect_faces(self, frame, conf_threshold=0.7):
+
+    def is_valid_face(self, face_img):
+        """
+        Validate if the detected region is actually a face using multiple checks
+        """
+        h, w = face_img.shape[:2]
+
+        # Check 1: Minimum size filter
+        if h < 50 or w < 50:
+            logger.debug(f"Face too small: {w}x{h}")
+            return False
+
+        # Check 2: Aspect ratio check (faces are roughly square to slightly rectangular)
+        aspect_ratio = w / h
+        if aspect_ratio < 0.6 or aspect_ratio > 1.8:
+            logger.debug(f"Invalid aspect ratio: {aspect_ratio}")
+            return False
+
+        # Check 3: Check for sufficient variation in pixel values
+        gray = cv2.cvtColor(face_img, cv2.COLOR_BGR2GRAY) if len(face_img.shape) == 3 else face_img
+
+        # Calculate standard deviation - faces should have good contrast
+        std_dev = np.std(gray)
+        if std_dev < 15:  # Too uniform, likely not a face
+            logger.debug(f"Low contrast region, std_dev: {std_dev}")
+            return False
+
+        # Check 4: Edge density check - faces have good edge content
+        edges = cv2.Canny(gray, 50, 150)
+        edge_density = np.sum(edges > 0) / (h * w)
+        if edge_density < 0.02:  # Too few edges
+            logger.debug(f"Low edge density: {edge_density}")
+            return False
+
+        # Check 5: Brightness check - avoid very dark or very bright regions
+        mean_brightness = np.mean(gray)
+        if mean_brightness < 30 or mean_brightness > 220:
+            logger.debug(f"Extreme brightness: {mean_brightness}")
+            return False
+
+        return True
+
+    def detect_faces(self, frame, conf_threshold=0.85):
         h, w = frame.shape[:2]
         logger.debug(f"Input frame dimensions: width={w}, height={h}")
 
-        blob = cv2.dnn.blobFromImage(cv2.resize(frame, (300, 300)), 1.0,
+        # Preprocess frame for better detection in low quality
+        enhanced_frame = self.enhance_frame_quality(frame)
+
+        blob = cv2.dnn.blobFromImage(cv2.resize(enhanced_frame, (300, 300)), 1.0,
                                      (300, 300), (104.0, 177.0, 123.0))
         self.face_net.setInput(blob)
         detections = self.face_net.forward()
@@ -91,7 +134,8 @@ class EmotionDetectorThread(threading.Thread):
             confidence = detections[0, 0, i, 2]
             logger.debug(f"Detection {i}: confidence={confidence:.4f}")
 
-            if confidence > conf_threshold:
+            # Increase confidence threshold to reduce false positives
+            if confidence > max(conf_threshold, 0.9):  # Use higher threshold
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x1, y1, x2, y2) = box.astype("int")
 
@@ -99,11 +143,43 @@ class EmotionDetectorThread(threading.Thread):
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w - 1, x2), min(h - 1, y2)
 
-                faces.append((x1, y1, x2 - x1, y2 - y1))
-                logger.debug(f"Face detected with box coordinates: {(x1, y1, x2, y2)}")
+                # Extract face region for validation
+                face_region = frame[y1:y2, x1:x2]
 
-        logger.info(f"Total faces detected above threshold {conf_threshold}: {len(faces)}")
+                # Validate if it's actually a face
+                if self.is_valid_face(face_region):
+                    faces.append((x1, y1, x2 - x1, y2 - y1))
+                    logger.debug(f"Valid face detected with box coordinates: {(x1, y1, x2, y2)}")
+                else:
+                    logger.debug(f"Invalid face rejected at coordinates: {(x1, y1, x2, y2)}")
+
+        logger.info(f"Total valid faces detected: {len(faces)}")
         return faces
+
+    def enhance_frame_quality(self, frame):
+        """
+        Enhance frame quality for better face detection in low quality streams
+        """
+        # Convert to grayscale for processing
+        if len(frame.shape) == 3:
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = frame.copy()
+
+        # Apply CLAHE (Contrast Limited Adaptive Histogram Equalization)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        enhanced_gray = clahe.apply(gray)
+
+        # Apply slight Gaussian blur to reduce noise
+        enhanced_gray = cv2.GaussianBlur(enhanced_gray, (3, 3), 0)
+
+        # Convert back to BGR if original was color
+        if len(frame.shape) == 3:
+            enhanced_frame = cv2.cvtColor(enhanced_gray, cv2.COLOR_GRAY2BGR)
+        else:
+            enhanced_frame = enhanced_gray
+
+        return enhanced_frame
 
     def _frame_grabber(self):
         logger.info("Frame grabber thread started.")
@@ -111,7 +187,7 @@ class EmotionDetectorThread(threading.Thread):
             ret, frame = self.capture.read()
             if ret:
                 with self.frame_lock:
-                    self.raw_frame = frame
+                    self.raw_frame = frame.copy()
                 self.failure_count = 0
                 logger.debug("Frame grabbed successfully.")
             else:
@@ -233,32 +309,40 @@ class EmotionDetectorThread(threading.Thread):
 
             for (x, y, w, h) in faces:
                 face_img = frame[y:y + h, x:x + w]
+
+                # Additional validation before emotion prediction
+                if not self.is_valid_face(face_img):
+                    logger.debug("Skipping emotion prediction for invalid face region")
+                    continue
+
                 emotion, confidence = predict_emotion(face_img, self.model_path)
                 logger.debug(f"Predicted emotion: {emotion} with confidence {confidence:.2f}")
 
-                # Only consider emotions above confidence threshold
-                if confidence >= 0.6:
+                # Increase confidence threshold for emotion prediction
+                if confidence >= 0.75:  # Increased from 0.6 to 0.75
                     self.emotion_buffer.append(emotion)
                 else:
                     self.emotion_buffer.append('neutral')  # treat low confidence as neutral
 
-                # Check sustained negative emotion
+                # Increase sustain threshold to reduce false alarms
                 negative_count = sum(1 for e in self.emotion_buffer if e in self.negative_emotions)
                 ratio = negative_count / len(self.emotion_buffer)
 
-                # Only trigger alert if sustained negative emotion exceeds threshold
-                if ratio >= self.sustain_threshold:
+                # Increased threshold from 0.7 to 0.8 (80% of frames must be negative)
+                if ratio >= 0.8:
                     # Pick the most common negative emotion in buffer
                     from collections import Counter
                     counter = Counter(e for e in self.emotion_buffer if e in self.negative_emotions)
-                    most_common_emotion, _ = counter.most_common(1)[0]
 
-                    # Avoid duplicate alerts for the same sustained emotion
-                    if most_common_emotion != self.last_negative_emotion:
-                        logger.info(
-                            f"Sustained negative emotion detected: {most_common_emotion} with ratio {ratio:.2f}")
-                        self.save_alert(face_img, most_common_emotion, confidence)
-                        self.last_negative_emotion = most_common_emotion
+                    if counter:  # Make sure we have negative emotions
+                        most_common_emotion, count = counter.most_common(1)[0]
+
+                        # Additional check: require at least 6 out of 10 frames to be the same negative emotion
+                        if count >= 6 and most_common_emotion != self.last_negative_emotion:
+                            logger.info(
+                                f"Sustained negative emotion detected: {most_common_emotion} with ratio {ratio:.2f}")
+                            self.save_alert(face_img, most_common_emotion, confidence)
+                            self.last_negative_emotion = most_common_emotion
                 else:
                     self.last_negative_emotion = None
 
@@ -272,7 +356,6 @@ class EmotionDetectorThread(threading.Thread):
                 cv2.rectangle(frame, (x, y), (x + w, y + h), COLOR, THICKNESS, LINE_TYPE)
                 label = f'{emotion}({confidence:.2f})'
                 cv2.putText(frame, label, (x, y - 10), FONT, FONT_SCALE, COLOR, THICKNESS, LINE_TYPE)
-
 
             with self.frame_lock:
                 self.processed_frame = frame
@@ -300,4 +383,3 @@ class EmotionDetectorThread(threading.Thread):
             self.join(timeout=5)
         self.capture.release()
         logger.info(f"Camera {self.cam_id} stopped and resources released")
-

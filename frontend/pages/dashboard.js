@@ -78,93 +78,38 @@ const Dashboard = () => {
   const [emotionTrends, setEmotionTrends] = useState({});
   const [cameraUrl, setCameraUrl] = useState('');
   const [hasError, setHasError] = useState(false);
+  const [isCameraLoading, setIsCameraLoading] = useState(true);
 
-  useEffect(() => {
-    if (!selectedCamera) {
-      setCameraUrl('');
-      return;
+  const fetchCameras = async () => {
+    setIsCameraLoading(true);
+    try {
+      const res = await axios.get('/api/cameras');
+      const newCameras = res.data || [];
+
+      setCameraList(newCameras);
+
+      // ✅ Preserve selected camera if it's still available
+      if (!newCameras.find((cam) => cam.id === selectedCamera)) {
+        setSelectedCamera(null); // deselect if not found
+      }
+
+    } catch (error) {
+      console.error('Error fetching cameras:', error);
+
+      if (error.response?.status === 401) {
+        console.log('Authentication failed while fetching cameras');
+        localStorage.removeItem('token');
+        localStorage.removeItem('currentUser');
+        window.location.href = '/login';
+        return;
+      }
+
+      setCameraList([]);
+      setSelectedCamera(null); // also clear selection on error
+    } finally {
+      setIsCameraLoading(false);
     }
-
-    const fetchCameraFeed = async () => {
-      try {
-        const res = await axios.get(`/api/camera_feed/${selectedCamera}`, {
-          responseType: 'blob',
-        });
-        const url = URL.createObjectURL(res.data);
-        setCameraUrl(url);
-        setHasError(false);
-      } catch (err) {
-        console.error('Failed to load camera feed:', err);
-        setHasError(true);
-      }
-    };
-
-    fetchCameraFeed();
-    return () => {
-      if (cameraUrl) URL.revokeObjectURL(cameraUrl);
-    };
-  }, [selectedCamera]);
-
-  useEffect(() => setIsClient(true), []);
-
-  useEffect(() => {
-    const fetchCameras = async () => {
-      setLoadingCameras(true);
-      try {
-        const res = await axios.get('/api/cameras');
-        const data = res.data;
-        setCameraList(data);
-        if (data.length > 0) setSelectedCamera(data[0].id);
-      } catch (err) {
-        console.error("Failed to fetch cameras", err);
-      } finally {
-        setLoadingCameras(false);
-      }
-    };
-    fetchCameras();
-  }, []);
-
-  useEffect(() => {
-    const fetchAnalytics = async () => {
-      setLoadingAnalytics(true);
-      try {
-        const res = await axios.get(`/api/detection-analytics?range=${timeRange}`);
-        const data = res.data;
-        setPieData(data.pie_data);
-        setPiePercentageData(data.pie_percentage_data);
-        setMostFrequentEmotion(data.most_frequent_emotion);
-        setTimelineData(data.timeline_data);
-        setEmotionTrends(data.emotion_trends);
-        setPeakTimes(data.peak_times);
-        setTotalDetections(data.total_detections);
-        console.log('Pie Data:', pieData);
-        console.log('Pie percent:', piePercentageData);
-
-        if (data.avg_intensity) {
-          setAvgIntensityData(data.avg_intensity);
-        } else {
-          const avgData = data.timeline_data.map(entry => ({
-            name: entry.time || '',
-            value: (entry.FEAR + entry.ANGER + entry.SADNESS + entry.DISGUST) / 4
-          }));
-          setAvgIntensityData(avgData);
-        }
-      } catch (err) {
-        console.error("Failed to fetch analytics", err);
-        setPieData([]);
-        setPiePercentageData([]);
-        setMostFrequentEmotion(null);
-        setTimelineData([]);
-        setEmotionTrends({});
-        setPeakTimes({});
-        setTotalDetections(0);
-        setAvgIntensityData([]);
-      } finally {
-        setLoadingAnalytics(false);
-      }
-    };
-    fetchAnalytics();
-  }, [timeRange]);
+  };
 
   const handleLogout = async () => {
     const token = localStorage.getItem('token');
@@ -282,6 +227,49 @@ const Dashboard = () => {
     });
   }
 
+  useEffect(() => {
+    const fetchAnalytics = async () => {
+      setLoadingAnalytics(true);
+      try {
+        const res = await axios.get(`/api/detection-analytics?range=${timeRange}`);
+        const data = res.data;
+        setPieData(data.pie_data);
+        setPiePercentageData(data.pie_percentage_data);
+        setMostFrequentEmotion(data.most_frequent_emotion);
+        setTimelineData(data.timeline_data);
+        setEmotionTrends(data.emotion_trends);
+        setPeakTimes(data.peak_times);
+        setTotalDetections(data.total_detections);
+        console.log('Pie Data:', pieData);
+        console.log('Pie percent:', piePercentageData);
+
+        if (data.avg_intensity) {
+          setAvgIntensityData(data.avg_intensity);
+        } else {
+          const avgData = data.timeline_data.map(entry => ({
+            name: entry.time || '',
+            value: (entry.FEAR + entry.ANGER + entry.SADNESS + entry.DISGUST) / 4
+          }));
+          setAvgIntensityData(avgData);
+        }
+      } catch (err) {
+        console.error("Failed to fetch analytics", err);
+        setPieData([]);
+        setPiePercentageData([]);
+        setMostFrequentEmotion(null);
+        setTimelineData([]);
+        setEmotionTrends({});
+        setPeakTimes({});
+        setTotalDetections(0);
+        setAvgIntensityData([]);
+      } finally {
+        setLoadingAnalytics(false);
+      }
+    };
+    fetchAnalytics();
+    fetchCameras();
+  }, [timeRange]);
+
   return (
     <>
       <Navbar onLogout={handleLogout} />
@@ -291,7 +279,7 @@ const Dashboard = () => {
       >
         {/* Dark overlay for better text readability */}
         <div className="absolute inset-0 bg-black/40 z-0"></div>
-        
+
         <div className="relative z-10">
           <h1 className="text-4xl font-bold text-center text-white mb-10 tracking-tight drop-shadow-lg">
             Emotion Analysis Dashboard
@@ -315,28 +303,30 @@ const Dashboard = () => {
 
               {/* Live Feed */}
               <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-xl p-6 border border-gray-700/50">
-                <h3 className="text-lg font-semibold text-white mb-4">Live Detection Feed</h3>
+                <h3 className="text-lg font-semibold w-full text-center text-white mb-4">Live Detection Feed</h3>
                 {loadingCameras ? (
                   <p className="text-gray-300">Loading cameras...</p>
                 ) : (
                   <>
                     <div className="mb-4 flex items-center gap-2">
-                      <label className="text-sm font-medium text-white">Select Camera:</label>
                       <select
-                        className="border border-gray-600 rounded px-2 py-1 bg-gray-800 text-white focus:border-[#2a9d8f] focus:outline-none"
-                        value={selectedCamera || ''}
-                        onChange={(e) => setSelectedCamera(e.target.value)}
+                        className="border w-full border-gray-600 rounded px-2 py-1 bg-gray-800 text-white focus:border-[#2a9d8f] focus:outline-none"
+                        value={selectedCamera ?? ''}
+                        onChange={(e) => setSelectedCamera(Number(e.target.value))}
                       >
-                        {cameraList.map(cam => (
+                        <option value="">-- Choose a Camera --</option>
+                        {cameraList.map((cam) => (
                           <option key={cam.id} value={cam.id}>
-                            {cam.name || `Camera ${cam.id}`}
+                            {cam.label} ({cam.ip})
                           </option>
                         ))}
                       </select>
                     </div>
+
                     {selectedCamera ? (
                       <img
-                        src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCamera}?t=${Date.now()}`}
+                        key={selectedCamera}  // 👈 forces re-render when camera changes
+                        src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCamera}?t=${Date.now()}`} // 👈 forces cache bypass
                         alt="Live Feed"
                         className="rounded-lg w-full h-64 object-cover border border-gray-600"
                       />

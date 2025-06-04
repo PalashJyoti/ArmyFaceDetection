@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, g
 from datetime import datetime, timezone, timedelta
 from functools import wraps
 from extensions import db
@@ -39,7 +39,10 @@ def jwt_required(f):
         if not auth_header:
             return jsonify({'error': 'Authorization header missing'}), 401
 
-        token = auth_header.replace('Bearer ', '')
+        token = auth_header.replace('Bearer ', '').strip()
+        if not token:
+            return jsonify({'error': 'Token missing'}), 401
+
         if token in blacklisted_tokens:
             return jsonify({'error': 'Token is blacklisted'}), 401
 
@@ -47,7 +50,9 @@ def jwt_required(f):
         if not payload:
             return jsonify({'error': 'Invalid or expired token'}), 401
 
-        request.user = payload
+        # Instead of request.user, use flask.g which is meant for storing request-specific data
+        g.user = payload
+
         return f(*args, **kwargs)
     return decorated
 
@@ -153,6 +158,7 @@ def reset_password():
     return jsonify({'message': 'Password reset successfully'}), 200
 
 @auth_bp.route('/logout', methods=['POST'])
+@jwt_required
 def logout():
     auth_header = request.headers.get('Authorization')
     if not auth_header:
@@ -165,7 +171,7 @@ def logout():
 @auth_bp.route('/change-role', methods=['POST'])
 @jwt_required
 def change_role():
-    current_user = User.query.get(request.user['user_id'])
+    current_user = User.query.get(g.user['user_id'])
     if current_user.role != 'admin':
         return jsonify({'error': 'Access denied. Admins only.'}), 403
 
@@ -186,6 +192,7 @@ def change_role():
     return jsonify({'message': f"Role for {username} changed to {new_role}"}), 200
 
 @auth_bp.route('/users', methods=['GET'])
+@jwt_required
 def get_users():
     ist = pytz_timezone('Asia/Kolkata')
     users = User.query.all()
@@ -218,7 +225,7 @@ def add_user():
 @auth_bp.route('/users/delete/<int:user_id>', methods=['DELETE'])
 @jwt_required
 def delete_user(user_id):
-    current_user = User.query.get(request.user['user_id'])
+    current_user = User.query.get(g.user['user_id'])
     if current_user.role != 'admin':
         return jsonify({'error': 'Access denied. Admins only.'}), 403
 
@@ -233,7 +240,7 @@ def delete_user(user_id):
 @auth_bp.route('/users/<int:user_id>/role', methods=['PUT'])
 @jwt_required
 def update_role(user_id):
-    current_user = request.user
+    current_user = g.user
 
     if current_user['role'] != 'admin':
         return jsonify({'error': 'Access denied. Admins only.'}), 403
@@ -257,8 +264,3 @@ def update_role(user_id):
     db.session.commit()
 
     return jsonify({'id': user.id, 'name': user.name, 'role': user.role})
-
-@auth_bp.route('/dashboard', methods=['GET'])
-@jwt_required
-def dashboard():
-    return jsonify({'message': f"Welcome, {request.user['username']}!"})

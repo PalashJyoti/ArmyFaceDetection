@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Navbar from '../components/navbar';
 import axios from '../pages/api/axios';
 import Spinner from '../components/spinner';
@@ -16,6 +16,10 @@ const AdminPanel = () => {
   const [newCameraIP, setNewCameraIP] = useState('');
   const [newCameraSrc, setNewCameraSrc] = useState('');
   const [isCameraLoading, setIsCameraLoading] = useState(true);
+  const [feedTimestamp, setFeedTimestamp] = useState(Date.now());
+  
+  const feedIntervalRef = useRef(null);
+  const imgRef = useRef(null);
 
   useEffect(() => {
     const storedUser = localStorage.getItem('currentUser');
@@ -29,6 +33,36 @@ const AdminPanel = () => {
     fetchUsers();
     fetchCameras();
   }, []);
+
+  // Handle camera feed refresh
+  useEffect(() => {
+    console.log('AdminPanel mounted at', new Date().toLocaleTimeString());
+    if (selectedCameraId !== null) {
+      // Clear any existing interval
+      if (feedIntervalRef.current) {
+        clearInterval(feedIntervalRef.current);
+      }
+      
+      // Set up automatic refresh every 5 seconds
+      feedIntervalRef.current = setInterval(() => {
+        setFeedTimestamp(Date.now());
+      }, 5000);
+    } else {
+      // Clear interval when no camera is selected
+      if (feedIntervalRef.current) {
+        clearInterval(feedIntervalRef.current);
+        feedIntervalRef.current = null;
+      }
+    }
+
+    // Cleanup on unmount or camera change
+    return () => {
+      if (feedIntervalRef.current) {
+        clearInterval(feedIntervalRef.current);
+        feedIntervalRef.current = null;
+      }
+    };
+  }, [selectedCameraId]);
 
   const fetchUsers = async () => {
     setIsLoading(true);
@@ -129,6 +163,16 @@ const AdminPanel = () => {
     }
   };
 
+  const handleImageError = (e) => {
+    console.error('Camera feed error:', e);
+    // Optionally show a placeholder or error message
+  };
+
+  const handleImageLoad = () => {
+    // Image loaded successfully
+    console.log('Camera feed loaded');
+  };
+
   return (
     <>
       <Navbar />
@@ -179,22 +223,37 @@ const AdminPanel = () => {
                 <div className="w-full max-w-4xl mx-auto">
                   <div className="relative w-full bg-black rounded-lg mb-4 overflow-hidden shadow-xl">
                     <img
-                      src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCameraId}?t=${Date.now()}`}
+                      ref={imgRef}
+                      src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCameraId}?t=${feedTimestamp}`}
                       alt="Live Feed"
-                      className="rounded-lg w-full h-[500px] object-cover border border-gray-600"
-                      key={selectedCameraId}
+                      className="rounded-lg w-full h-[500px] object-cover border border-gray-600 transition-opacity duration-200"
+                      onError={handleImageError}
+                      onLoad={handleImageLoad}
+                      style={{ opacity: 1 }}
                     />
+                    {/* Loading indicator overlay */}
+                    <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm">
+                      Live
+                    </div>
                   </div>
                 </div>
-                <span
-                  className={`inline-block px-6 py-2 rounded-full text-sm font-semibold text-white shadow-lg ${
-                    cameras.find((cam) => cam.id === selectedCameraId)?.status === 'Active'
-                      ? 'bg-gradient-to-r from-green-500 to-green-600'
-                      : 'bg-gradient-to-r from-red-500 to-red-600'
-                  }`}
-                >
-                  {cameras.find((cam) => cam.id === selectedCameraId)?.status}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`inline-block px-6 py-2 rounded-full text-sm font-semibold text-white shadow-lg ${
+                      cameras.find((cam) => cam.id === selectedCameraId)?.status === 'Active'
+                        ? 'bg-gradient-to-r from-green-500 to-green-600'
+                        : 'bg-gradient-to-r from-red-500 to-red-600'
+                    }`}
+                  >
+                    {cameras.find((cam) => cam.id === selectedCameraId)?.status}
+                  </span>
+                  <button
+                    onClick={() => setFeedTimestamp(Date.now())}
+                    className="bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white px-4 py-2 rounded-lg font-semibold transition-all duration-200 transform hover:scale-105 shadow-lg text-sm"
+                  >
+                    Refresh Feed
+                  </button>
+                </div>
               </div>
             )}
           </section>
@@ -250,7 +309,7 @@ const AdminPanel = () => {
                     <tr>
                       <th className="px-6 py-4 font-semibold">Camera ID</th>
                       <th className="px-6 py-4 font-semibold">Label</th>
-                      <th className="px-6 py-4 font-semibold">IP Address</th>
+                      <th className="px-6 py-4 font-semold">IP Address</th>
                       <th className="px-6 py-4 font-semibold">URL</th>
                       <th className="px-6 py-4 font-semibold">Status</th>
                       <th className="px-6 py-4 font-semibold">Actions</th>

@@ -25,17 +25,22 @@ class CameraStream:
             print(f"❌ Failed to open camera {camera_id} with src: {src}")
 
     def update(self):
+        failure_count = 0
+        max_failures = 45  # 3 seconds of continuous failure at 15 FPS
+
         while self.running:
             ret, frame = self.capture.read()
             if ret:
                 self.frame = frame
+                failure_count = 0
             else:
+                failure_count += 1
                 if self.capture.get(cv2.CAP_PROP_FRAME_COUNT) > 0:
-                    # Only rewind if it's a file, not a stream (avoid crash)
                     self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                else:
-                    print(f"⚠️ Camera {self.camera_id} read failed (stream might be dead)")
-            time.sleep(0.03)
+                elif failure_count >= max_failures:
+                    print(f"⚠️ Camera {self.camera_id} read failed for 3s straight. Stream might be dead.")
+            time.sleep(1 / 15)
+
 
     def get_frame(self):
         return self.frame if self.valid else None

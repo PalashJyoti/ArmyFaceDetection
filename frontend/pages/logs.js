@@ -31,9 +31,17 @@ const DetectionLogs = () => {
   const [selectedEmotion, setSelectedEmotion] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [totalDetections, setTotalDetections] = useState(0);
+  const [selectedLogs, setSelectedLogs] = useState([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
   const logsPerPage = 10;
 
   useEffect(() => {
+    fetchLogs();
+  }, [range]);
+
+  const fetchLogs = () => {
     setLoading(true);
     axios.get(`/api/detection-logs?range=${range}`)
       .then(response => {
@@ -43,13 +51,14 @@ const DetectionLogs = () => {
         setEmotionStats(calculateEmotionStats(response.data));
         setTotalDetections(response.data.length);
         setCurrentPage(1);
+        setSelectedLogs([]);
         setLoading(false);
       })
       .catch(error => {
         console.error('Error fetching logs:', error);
         setLoading(false);
       });
-  }, [range]);
+  };
 
   // Filter logs when emotion or search term changes
   useEffect(() => {
@@ -68,6 +77,7 @@ const DetectionLogs = () => {
     
     setFilteredLogs(filtered);
     setCurrentPage(1);
+    setSelectedLogs([]);
   }, [selectedEmotion, searchTerm, logs]);
 
   const calculateEmotionStats = (logs) => {
@@ -114,6 +124,7 @@ const DetectionLogs = () => {
     
     setFilteredLogs(filtered);
     setCurrentPage(1);
+    setSelectedLogs([]);
   };
 
   const resetFilters = () => {
@@ -121,6 +132,66 @@ const DetectionLogs = () => {
     setSearchTerm('');
     setFilteredLogs(logs);
     setCurrentPage(1);
+    setSelectedLogs([]);
+  };
+
+  // Delete functionality
+  const handleDeleteSingle = (logId) => {
+    setDeleteTarget({ type: 'single', id: logId });
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedLogs.length === 0) return;
+    setDeleteTarget({ type: 'bulk', ids: selectedLogs });
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    setDeleting(true);
+    try {
+      if (deleteTarget.type === 'single') {
+        await axios.delete(`/api/detection-logs/${deleteTarget.id}`);
+      } else {
+        await axios.delete('/api/detection-logs/bulk', {
+          data: { ids: deleteTarget.ids }
+        });
+      }
+      
+      // Refresh the data
+      fetchLogs();
+      setShowDeleteConfirm(false);
+      setDeleteTarget(null);
+    } catch (error) {
+      console.error('Error deleting logs:', error);
+      alert('Failed to delete logs. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setDeleteTarget(null);
+  };
+
+  // Selection handlers
+  const handleSelectAll = (e) => {
+    if (e.target.checked) {
+      const currentLogIds = currentLogs.map(log => log.id);
+      setSelectedLogs(prev => [...new Set([...prev, ...currentLogIds])]);
+    } else {
+      const currentLogIds = currentLogs.map(log => log.id);
+      setSelectedLogs(prev => prev.filter(id => !currentLogIds.includes(id)));
+    }
+  };
+
+  const handleSelectLog = (logId) => {
+    setSelectedLogs(prev => 
+      prev.includes(logId) 
+        ? prev.filter(id => id !== logId)
+        : [...prev, logId]
+    );
   };
 
   const indexOfLastLog = currentPage * logsPerPage;
@@ -246,7 +317,6 @@ const DetectionLogs = () => {
                 </button>
               </div>
             </div>
-
             {/* Chart Section */}
             <div className="bg-gray-800/60 rounded-xl p-6 mb-8 border border-gray-600/50">
               <h2 className="text-xl font-bold text-white mb-4">Detection Frequency</h2>
@@ -312,6 +382,33 @@ const DetectionLogs = () => {
               </div>
             )}
 
+            {/* Bulk Actions */}
+            {selectedLogs.length > 0 && (
+              <div className="bg-red-900/20 border border-red-500/30 rounded-xl p-4 mb-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <span className="text-red-400 font-medium">
+                      {selectedLogs.length} log{selectedLogs.length !== 1 ? 's' : ''} selected
+                    </span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSelectedLogs([])}
+                      className="px-4 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition text-sm"
+                    >
+                      Clear Selection
+                    </button>
+                    <button
+                      onClick={handleDeleteSelected}
+                      className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition text-sm flex items-center gap-2"
+                    >
+                      🗑️ Delete Selected
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* Table Section */}
             <section>
               <div className="flex justify-between items-center mb-6">
@@ -332,19 +429,36 @@ const DetectionLogs = () => {
                     <table className="min-w-full text-sm text-left text-white">
                       <thead className="bg-[#2a9d8f] text-white">
                         <tr>
+                          <th className="px-4 py-4 font-semibold">
+                            <input
+                              type="checkbox"
+                              onChange={handleSelectAll}
+                              checked={currentLogs.length > 0 && currentLogs.every(log => selectedLogs.includes(log.id))}
+                              className="rounded border-gray-300 text-[#2a9d8f] focus:ring-[#2a9d8f]"
+                            />
+                          </th>
                           <th className="px-6 py-4 font-semibold">Timestamp</th>
                           <th className="px-6 py-4 font-semibold">Camera</th>
                           <th className="px-6 py-4 font-semibold">Emotion</th>
                           <th className="px-6 py-4 font-semibold">Screenshot</th>
+                          <th className="px-6 py-4 font-semibold">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
                         {currentLogs.length > 0 ? (
                           currentLogs.map((log, index) => (
                             <tr
-                              key={index}
+                              key={log.id || index}
                               className="border-t border-gray-600/50 hover:bg-gray-700/50 transition duration-300"
                             >
+                              <td className="px-4 py-4">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedLogs.includes(log.id)}
+                                  onChange={() => handleSelectLog(log.id)}
+                                  className="rounded border-gray-300 text-[#2a9d8f] focus:ring-[#2a9d8f]"
+                                />
+                              </td>
                               <td className="px-6 py-4 text-gray-200">
                                 {new Date(log.timestamp).toLocaleString('en-IN', {
                                   year: 'numeric',
@@ -377,11 +491,20 @@ const DetectionLogs = () => {
                                   🖼️ View Image
                                 </a>
                               </td>
+                              <td className="px-6 py-4">
+                                <button
+                                  onClick={() => handleDeleteSingle(log.id)}
+                                  className="inline-flex items-center px-3 py-1 bg-red-600 hover:bg-red-700 text-white rounded-lg transition text-sm"
+                                  title="Delete this log"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </td>
                             </tr>
                           ))
                         ) : (
                           <tr>
-                            <td colSpan="4" className="px-6 py-20 text-center">
+                            <td colSpan="6" className="px-6 py-20 text-center">
                               <div className="text-gray-400 text-lg">
                                 📭 No logs found for the current filters
                               </div>
@@ -459,6 +582,47 @@ const DetectionLogs = () => {
             </section>
           </div>
         </div>
+
+        {/* Delete Confirmation Modal */}
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-gray-800 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl border border-gray-600">
+              <div className="text-center">
+                <div className="text-4xl mb-4">⚠️</div>
+                <h3 className="text-xl font-bold text-white mb-4">Confirm Delete</h3>
+                <p className="text-gray-300 mb-6">
+                  {deleteTarget?.type === 'single' 
+                    ? 'Are you sure you want to delete this detection log? This action cannot be undone.'
+                    : `Are you sure you want to delete ${deleteTarget?.ids?.length} selected detection logs? This action cannot be undone.`
+                  }
+                </p>
+                <div className="flex gap-3 justify-center">
+                  <button
+                    onClick={cancelDelete}
+                    disabled={deleting}
+                    className="px-6 py-2 bg-gray-600 hover:bg-gray-500 text-white rounded-lg transition disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDelete}
+                    disabled={deleting}
+                    className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {deleting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                        Deleting...
+                      </>
+                    ) : (
+                      <>🗑️ Delete</>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </>
   );

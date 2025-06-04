@@ -56,3 +56,8 @@ nosetests.xml
 .mp4.*
 *.pth
 .pth.*
+
+*.jpg
+.jpg.*
+*.png
+.png.*
