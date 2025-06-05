@@ -5,6 +5,7 @@ import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import deque
+import torch
 
 import cv2
 import numpy as np
@@ -33,6 +34,7 @@ IST = ZoneInfo("Asia/Kolkata")  # Indian Standard Time
 
 
 class EmotionDetectorThread(threading.Thread):
+    # At the beginning of the EmotionDetectorThread.__init__ method
     def __init__(self, cam_id, src, model_path, app):
         super().__init__()
         self.cam_id = cam_id
@@ -47,10 +49,20 @@ class EmotionDetectorThread(threading.Thread):
         self.emotion_buffer = deque(maxlen=10)  # last 10 frames
         self.negative_emotions = {'fear', 'anger', 'sadness', 'disgust'}
         self.sustain_threshold = 0.7  # 70% of last 10 frames
-
-        # Load face detector
+    
+        # Check if CUDA is available for OpenCV
+        self.has_cv_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
+        if self.has_cv_cuda:
+            logger.info(f"OpenCV CUDA support enabled for camera {cam_id}")
+            # Create CUDA streams for parallel processing
+            self.cuda_stream = cv2.cuda.Stream()
+        
+        # Load face detector with GPU support if available
         self.face_net = cv2.dnn.readNetFromCaffe(FACE_DETECTOR_PROTO, FACE_DETECTOR_MODEL)
-        logger.debug("face detector loaded.")
+        if self.has_cv_cuda:
+            self.face_net.setPreferableBackend(cv2.dnn.DNN_BACKEND_CUDA)
+            self.face_net.setPreferableTarget(cv2.dnn.DNN_TARGET_CUDA)
+        logger.debug("Face detector loaded.")
 
         if self.src.startswith("rtsp://") and "rtsp_transport=tcp" not in self.src:
             self.src += "?rtsp_transport=tcp"
@@ -120,39 +132,50 @@ class EmotionDetectorThread(threading.Thread):
     def detect_faces(self, frame, conf_threshold=0.85):
         h, w = frame.shape[:2]
         logger.debug(f"Input frame dimensions: width={w}, height={h}")
-
+    
         # Preprocess frame for better detection in low quality
         enhanced_frame = self.enhance_frame_quality(frame)
-
+    
+        # Optimize blob creation and inference
         blob = cv2.dnn.blobFromImage(cv2.resize(enhanced_frame, (300, 300)), 1.0,
                                      (300, 300), (104.0, 177.0, 123.0))
         self.face_net.setInput(blob)
-        detections = self.face_net.forward()
-
+        
+        # Use async inference if CUDA is available
+        if hasattr(self, 'has_cv_cuda') and self.has_cv_cuda:
+            self.face_net.forward(outBlobNames=None, outputBlobs=None)
+            detections = self.face_net.forward()
+        else:
+            detections = self.face_net.forward()
+    
         faces = []
         for i in range(detections.shape[2]):
             confidence = detections[0, 0, i, 2]
             logger.debug(f"Detection {i}: confidence={confidence:.4f}")
-
+    
             # Increase confidence threshold to reduce false positives
             if confidence > max(conf_threshold, 0.9):  # Use higher threshold
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x1, y1, x2, y2) = box.astype("int")
-
+    
                 # Clip to frame boundaries
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w - 1, x2), min(h - 1, y2)
-
+    
                 # Extract face region for validation
                 face_region = frame[y1:y2, x1:x2]
-
+                
+                # Skip empty regions
+                if face_region.size == 0:
+                    continue
+    
                 # Validate if it's actually a face
                 if self.is_valid_face(face_region):
                     faces.append((x1, y1, x2 - x1, y2 - y1))
                     logger.debug(f"Valid face detected with box coordinates: {(x1, y1, x2, y2)}")
                 else:
                     logger.debug(f"Invalid face rejected at coordinates: {(x1, y1, x2, y2)}")
-
+    
         logger.info(f"Total valid faces detected: {len(faces)}")
         return faces
 
@@ -373,6 +396,17 @@ class EmotionDetectorThread(threading.Thread):
         # Return True if the thread is running and the video capture is open
         return self.running and self.capture.isOpened()
 
+    # Add this method to the EmotionDetectorThread class
+    def cleanup_resources(self):
+        # Release CUDA memory if using GPU
+        if hasattr(self, 'has_cv_cuda') and self.has_cv_cuda:
+            cv2.cuda.deviceReset()
+        
+        # Clear PyTorch cache if using CUDA
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    # Modify the stop method
     def stop(self):
         logger.info(f"Stopping camera processing for camera {self.cam_id}")
         self.running = False  # Stop the detection loop
@@ -382,4 +416,5 @@ class EmotionDetectorThread(threading.Thread):
         if self.is_alive():  # wait for main thread if running
             self.join(timeout=5)
         self.capture.release()
+        self.cleanup_resources()  # Add this line
         logger.info(f"Camera {self.cam_id} stopped and resources released")

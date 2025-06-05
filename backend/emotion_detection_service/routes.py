@@ -1,8 +1,33 @@
 import time
 import cv2
 import logging
-from flask import Blueprint, Response, request, jsonify, current_app
+from flask import Blueprint, Response, jsonify, current_app, request
 import emotion_detection_service.globals as globals_module
+import cv2
+import threading
+
+emotion_bp = Blueprint('emotion', __name__)
+
+# Use a thread-local storage for request context
+local_storage = threading.local()
+
+@emotion_bp.route('/stream/<int:camera_id>')
+def video_feed(camera_id):
+    def generate_frames():
+        while True:
+            frame = globals_module.manager.get_frame(camera_id)
+            if frame is not None:
+                ret, buffer = cv2.imencode('.jpg', frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+                if ret:
+                    yield (b'--frame\r\n'
+                           b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
+            else:
+                # Return a blank frame or error image if no frame is available
+                yield (b'--frame\r\n'
+                       b'Content-Type: image/jpeg\r\n\r\n' + b'' + b'\r\n')
+
+    return Response(generate_frames(),
+                    mimetype='multipart/x-mixed-replace; boundary=frame')
 
 from extensions import db
 

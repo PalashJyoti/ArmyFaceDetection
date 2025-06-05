@@ -46,3 +46,44 @@ def predict_emotion(frame, model_path: str):
     except Exception as e:
         logger.error(f"[predict_emotion] Error: {e}")
         return "error", 0.0
+
+# Add batch processing capability
+def predict_emotions_batch(frames, model_path: str):
+    global _model_loaded
+
+    try:
+        # Load model only once
+        if not _model_loaded:
+            load_model(model_path)
+            _model_loaded = True
+
+        if _model is None:
+            logger.error("Model is not loaded properly.")
+            return [("error", 0.0)] * len(frames)
+
+        # Process batch of images
+        batch_tensors = []
+        for frame in frames:
+            # Convert image to RGB and preprocess
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            img_tensor = _transform(rgb).unsqueeze(0)
+            batch_tensors.append(img_tensor)
+        
+        # Stack tensors into a batch
+        if batch_tensors:
+            batch = torch.cat(batch_tensors, 0).to(_device)
+            
+            with torch.no_grad():
+                logits = _model(batch)
+                probs = F.softmax(logits, dim=1).cpu().numpy()
+            
+            results = []
+            for i in range(len(frames)):
+                idx = int(np.argmax(probs[i]))
+                results.append((_labels[idx], float(probs[i][idx])))
+            return results
+        return []
+
+    except Exception as e:
+        logger.error(f"[predict_emotions_batch] Error: {e}")
+        return [("error", 0.0)] * len(frames)
