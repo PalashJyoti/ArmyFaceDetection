@@ -141,17 +141,17 @@ def get_cameras():
 def get_detection_analytics():
     """
     Returns detection analytics (pie chart, timeline, trends, etc.)
-    Filtered by time range: '5m', '30m', '1h', 'today'.
+    Filtered by time range: '5m', '30m', '1h', 'today', 'overall'.
     """
     ist = pytz_timezone('Asia/Kolkata')
-    time_range = request.args.get('range', '5m')
+    time_range = request.args.get('range', 'overall')
     now_utc = datetime.utcnow().replace(tzinfo=utc)
 
     # Define time deltas for short ranges
     time_deltas = {
-        '5m': timedelta(minutes=5),
-        '30m': timedelta(minutes=30),
-        '1h': timedelta(hours=1)
+        '5min': timedelta(minutes=5),
+        '30min': timedelta(minutes=30),
+        '1hr': timedelta(hours=1)
     }
 
     if time_range == 'today':
@@ -159,14 +159,21 @@ def get_detection_analytics():
         since_ist = now_ist.replace(hour=0, minute=0, second=0, microsecond=0)
         since = since_ist.astimezone(utc)
         delta = now_utc - since
+    elif time_range == 'overall':
+        # For overall, we don't filter by time - get all records
+        since = None
+        delta = None
     else:
         delta = time_deltas.get(time_range, timedelta(minutes=5))  # fallback to 5m
         since = now_utc - delta
 
     # Fetch logs within time window
-    logs = DetectionLog.query.filter(
-        DetectionLog.timestamp >= since
-    ).order_by(DetectionLog.timestamp.asc()).all()
+    if time_range == 'overall':
+        logs = DetectionLog.query.order_by(DetectionLog.timestamp.asc()).all()
+    else:
+        logs = DetectionLog.query.filter(
+            DetectionLog.timestamp >= since
+        ).order_by(DetectionLog.timestamp.asc()).all()
 
     # Aggregate emotion counts for the current period
     emotion_counts = defaultdict(int)
@@ -188,48 +195,63 @@ def get_detection_analytics():
     emotions = ['FEAR', 'ANGER', 'SADNESS', 'DISGUST']
     timeline_buckets = defaultdict(lambda: {emo: 0 for emo in emotions})
 
-    def bucket_time(ts):
+    def bucket_time(ts, range_type):
+        """Create time buckets based on range type"""
         ts_ist = ts.replace(tzinfo=utc).astimezone(ist)
-        minute_bucket = (ts_ist.minute // 5) * 5
-        return ts_ist.replace(minute=minute_bucket, second=0, microsecond=0).strftime('%H:%M')
+
+        if range_type == 'overall':
+            # For overall, group by day
+            return ts_ist.strftime('%Y-%m-%d')
+        elif range_type == 'today':
+            # For today, group by hour
+            return ts_ist.strftime('%H:00')
+        else:
+            # For short ranges (5m, 30m, 1h), group by 5-minute intervals
+            minute_bucket = (ts_ist.minute // 5) * 5
+            return ts_ist.replace(minute=minute_bucket, second=0, microsecond=0).strftime('%H:%M')
 
     for log in logs:
         if not log.timestamp:
             continue
-        bucket = bucket_time(log.timestamp)
+        bucket = bucket_time(log.timestamp, time_range)
         emo = log.emotion.upper()
         if emo in emotions:
             timeline_buckets[bucket][emo] += 1
 
     timeline_data = [{'time': time_label, **timeline_buckets[time_label]} for time_label in sorted(timeline_buckets)]
 
-    # Previous period for trend comparison
-    previous_since = since - delta
-    previous_until = since
-
-    previous_logs = DetectionLog.query.filter(
-        DetectionLog.timestamp >= previous_since,
-        DetectionLog.timestamp < previous_until
-    ).all()
-
-    previous_emotion_counts = defaultdict(int)
-    for log in previous_logs:
-        emo = log.emotion.upper()
-        previous_emotion_counts[emo] += 1
-
+    # Previous period for trend comparison (skip for overall)
     trend = {}
-    for emo in emotions:
-        current = emotion_counts.get(emo, 0)
-        previous = previous_emotion_counts.get(emo, 0)
-        if previous == 0:
-            trend[emo] = 'increase' if current > 0 else 'no change'
-        else:
-            if current > previous:
-                trend[emo] = 'increase'
-            elif current < previous:
-                trend[emo] = 'decrease'
+    if time_range != 'overall' and delta is not None:
+        previous_since = since - delta
+        previous_until = since
+
+        previous_logs = DetectionLog.query.filter(
+            DetectionLog.timestamp >= previous_since,
+            DetectionLog.timestamp < previous_until
+        ).all()
+
+        previous_emotion_counts = defaultdict(int)
+        for log in previous_logs:
+            emo = log.emotion.upper()
+            previous_emotion_counts[emo] += 1
+
+        for emo in emotions:
+            current = emotion_counts.get(emo, 0)
+            previous = previous_emotion_counts.get(emo, 0)
+            if previous == 0:
+                trend[emo] = 'increase' if current > 0 else 'no change'
             else:
-                trend[emo] = 'no change'
+                if current > previous:
+                    trend[emo] = 'increase'
+                elif current < previous:
+                    trend[emo] = 'decrease'
+                else:
+                    trend[emo] = 'no change'
+    else:
+        # For overall, we can't compare with previous period, so mark as no change
+        for emo in emotions:
+            trend[emo] = 'no change'
 
     # Peak times per emotion
     peak_times = {}
@@ -256,7 +278,18 @@ def get_detection_analytics():
         for emo in confidence_counts
     ]
 
-    return jsonify({
+    # Additional metadata for overall stats
+    date_range = {}
+    if logs:
+        first_log = min(logs, key=lambda x: x.timestamp)
+        last_log = max(logs, key=lambda x: x.timestamp)
+        date_range = {
+            'start_date': first_log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'end_date': last_log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+            'total_days': (last_log.timestamp - first_log.timestamp).days + 1
+        }
+
+    response_data = {
         'pie_data': pie_data,
         'pie_percentage_data': pie_percentage_data,
         'most_frequent_emotion': most_frequent_emotion,
@@ -264,8 +297,15 @@ def get_detection_analytics():
         'emotion_trends': trend,
         'peak_times': peak_times,
         'total_detections': total,
-        'avg_intensity': avg_intensity
-    })
+        'avg_intensity': avg_intensity,
+        'time_range': time_range
+    }
+
+    # Add date range info for overall view
+    if time_range == 'overall':
+        response_data['date_range'] = date_range
+
+    return jsonify(response_data)
 
 
 @camera_bp.route('/api/cameras/<int:camera_id>', methods=['GET'])

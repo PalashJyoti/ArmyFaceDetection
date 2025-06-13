@@ -16,19 +16,20 @@ if not logger.handlers:
     ch.setFormatter(formatter)
     logger.addHandler(ch)
 
+
 class MultiCameraManager:
     def __init__(self, model_path, app):
         self.detectors = {}
         self.model_path = model_path
         self.app = app
-        
+
         # Add resource management
         self.max_cameras = 10  # Limit based on system resources
         self.active_cameras = 0
-        
+
         # Add thread pool for background tasks
         self.thread_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4)
-        
+
         logger.info("MultiCameraManager initialized.")
 
     def add_camera(self, cam_id, src):
@@ -37,12 +38,13 @@ class MultiCameraManager:
             if self.active_cameras >= self.max_cameras:
                 logger.warning(f"Maximum camera limit reached ({self.max_cameras}). Cannot add camera {cam_id}.")
                 return False
-                
+
             detector = EmotionDetectorThread(cam_id, src, self.model_path, self.app)
             detector.start()
             self.detectors[cam_id] = detector
             self.active_cameras += 1
-            logger.info(f"Started detector for camera {cam_id}. Active cameras: {self.active_cameras}/{self.max_cameras}")
+            logger.info(
+                f"Started detector for camera {cam_id}. Active cameras: {self.active_cameras}/{self.max_cameras}")
             return True
         else:
             logger.debug(f"Camera {cam_id} already exists.")
@@ -54,7 +56,8 @@ class MultiCameraManager:
             detector.stop()
             detector.join()
             self.active_cameras -= 1
-            logger.debug(f"Stopped detector for camera {cam_id}. Active cameras: {self.active_cameras}/{self.max_cameras}")
+            logger.debug(
+                f"Stopped detector for camera {cam_id}. Active cameras: {self.active_cameras}/{self.max_cameras}")
             return True
         else:
             logger.debug(f"Attempted to remove unknown camera {cam_id}")
@@ -73,7 +76,6 @@ class MultiCameraManager:
                     status = Camera.query.get(cam_id).status.value
                     logger.info(f"Stopping camera {cam_id}, status from DB: {status}")
                     self.remove_camera(cam_id)
-
 
     def get_frame(self, cam_id):
         detector = self.detectors.get(cam_id)

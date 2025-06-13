@@ -6,6 +6,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from collections import deque
 import torch
+from skimage.feature import local_binary_pattern
 
 import cv2
 import numpy as np
@@ -49,14 +50,14 @@ class EmotionDetectorThread(threading.Thread):
         self.emotion_buffer = deque(maxlen=10)  # last 10 frames
         self.negative_emotions = {'fear', 'anger', 'sadness', 'disgust'}
         self.sustain_threshold = 0.7  # 70% of last 10 frames
-    
+
         # Check if CUDA is available for OpenCV
         self.has_cv_cuda = cv2.cuda.getCudaEnabledDeviceCount() > 0
         if self.has_cv_cuda:
             logger.info(f"OpenCV CUDA support enabled for camera {cam_id}")
             # Create CUDA streams for parallel processing
             self.cuda_stream = cv2.cuda.Stream()
-        
+
         # Load face detector with GPU support if available
         self.face_net = cv2.dnn.readNetFromCaffe(FACE_DETECTOR_PROTO, FACE_DETECTOR_MODEL)
         if self.has_cv_cuda:
@@ -87,7 +88,6 @@ class EmotionDetectorThread(threading.Thread):
         self.grab_thread.daemon = True
         self.grab_thread.start()
 
-
     def is_valid_face(self, face_img):
         """
         Validate if the detected region is actually a face using multiple checks
@@ -95,13 +95,13 @@ class EmotionDetectorThread(threading.Thread):
         h, w = face_img.shape[:2]
 
         # Check 1: Minimum size filter
-        if h < 50 or w < 50:
+        if h < 40 or w < 40:
             logger.debug(f"Face too small: {w}x{h}")
             return False
 
         # Check 2: Aspect ratio check (faces are roughly square to slightly rectangular)
         aspect_ratio = w / h
-        if aspect_ratio < 0.6 or aspect_ratio > 1.8:
+        if aspect_ratio < 0.5 or aspect_ratio > 2.0:
             logger.debug(f"Invalid aspect ratio: {aspect_ratio}")
             return False
 
@@ -110,14 +110,14 @@ class EmotionDetectorThread(threading.Thread):
 
         # Calculate standard deviation - faces should have good contrast
         std_dev = np.std(gray)
-        if std_dev < 15:  # Too uniform, likely not a face
+        if std_dev < 10:  # Too uniform, likely not a face
             logger.debug(f"Low contrast region, std_dev: {std_dev}")
             return False
 
         # Check 4: Edge density check - faces have good edge content
         edges = cv2.Canny(gray, 50, 150)
         edge_density = np.sum(edges > 0) / (h * w)
-        if edge_density < 0.02:  # Too few edges
+        if edge_density < 0.015:  # Too few edges
             logger.debug(f"Low edge density: {edge_density}")
             return False
 
@@ -127,55 +127,75 @@ class EmotionDetectorThread(threading.Thread):
             logger.debug(f"Extreme brightness: {mean_brightness}")
             return False
 
+        # New check 6: Circularity test (faces are rarely perfect circles)
+        contours, _ = cv2.findContours(cv2.Canny(gray, 100, 200), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            cnt = max(contours, key=cv2.contourArea)
+            perimeter = cv2.arcLength(cnt, True)
+            area = cv2.contourArea(cnt)
+            if perimeter > 0:
+                circularity = 4 * np.pi * area / (perimeter ** 2)
+                if circularity > 0.8:  # Reject perfect circles
+                    logger.debug(f"Circular object rejected: {circularity:.2f}")
+                    return False
+
+        # New check 7: Texture analysis using LBP
+        lbp = local_binary_pattern(gray, 8, 1, method='uniform')
+        hist, _ = np.histogram(lbp, bins=59, density=True)
+        texture_score = np.std(hist)
+        if texture_score < 0.15:  # Faces have complex textures
+            logger.debug(f"Low texture variation: {texture_score:.2f}")
+            return False
+
         return True
 
-    def detect_faces(self, frame, conf_threshold=0.85):
+    def detect_faces(self, frame, conf_threshold=0.7):
         h, w = frame.shape[:2]
         logger.debug(f"Input frame dimensions: width={w}, height={h}")
-    
+
         # Preprocess frame for better detection in low quality
         enhanced_frame = self.enhance_frame_quality(frame)
-    
+
         # Optimize blob creation and inference
         blob = cv2.dnn.blobFromImage(cv2.resize(enhanced_frame, (300, 300)), 1.0,
                                      (300, 300), (104.0, 177.0, 123.0))
         self.face_net.setInput(blob)
-        
+
         # Use async inference if CUDA is available
         if hasattr(self, 'has_cv_cuda') and self.has_cv_cuda:
             self.face_net.forward(outBlobNames=None, outputBlobs=None)
             detections = self.face_net.forward()
         else:
             detections = self.face_net.forward()
-    
+
         faces = []
         for i in range(detections.shape[2]):
             confidence = detections[0, 0, i, 2]
             logger.debug(f"Detection {i}: confidence={confidence:.4f}")
-    
+
             # Increase confidence threshold to reduce false positives
-            if confidence > max(conf_threshold, 0.9):  # Use higher threshold
+            if confidence > conf_threshold:  # Use higher threshold
                 box = detections[0, 0, i, 3:7] * np.array([w, h, w, h])
                 (x1, y1, x2, y2) = box.astype("int")
-    
+
                 # Clip to frame boundaries
                 x1, y1 = max(0, x1), max(0, y1)
                 x2, y2 = min(w - 1, x2), min(h - 1, y2)
-    
+
                 # Extract face region for validation
                 face_region = frame[y1:y2, x1:x2]
-                
+
                 # Skip empty regions
                 if face_region.size == 0:
                     continue
-    
+
                 # Validate if it's actually a face
                 if self.is_valid_face(face_region):
                     faces.append((x1, y1, x2 - x1, y2 - y1))
                     logger.debug(f"Valid face detected with box coordinates: {(x1, y1, x2, y2)}")
                 else:
                     logger.debug(f"Invalid face rejected at coordinates: {(x1, y1, x2, y2)}")
-    
+
         logger.info(f"Total valid faces detected: {len(faces)}")
         return faces
 
@@ -342,7 +362,7 @@ class EmotionDetectorThread(threading.Thread):
                 logger.debug(f"Predicted emotion: {emotion} with confidence {confidence:.2f}")
 
                 # Increase confidence threshold for emotion prediction
-                if confidence >= 0.75:  # Increased from 0.6 to 0.75
+                if confidence >= 0.65:  # Increased from 0.6 to 0.75
                     self.emotion_buffer.append(emotion)
                 else:
                     self.emotion_buffer.append('neutral')  # treat low confidence as neutral
@@ -352,7 +372,7 @@ class EmotionDetectorThread(threading.Thread):
                 ratio = negative_count / len(self.emotion_buffer)
 
                 # Increased threshold from 0.7 to 0.8 (80% of frames must be negative)
-                if ratio >= 0.8:
+                if ratio >= 0.7:
                     # Pick the most common negative emotion in buffer
                     from collections import Counter
                     counter = Counter(e for e in self.emotion_buffer if e in self.negative_emotions)
@@ -361,7 +381,7 @@ class EmotionDetectorThread(threading.Thread):
                         most_common_emotion, count = counter.most_common(1)[0]
 
                         # Additional check: require at least 6 out of 10 frames to be the same negative emotion
-                        if count >= 6 and most_common_emotion != self.last_negative_emotion:
+                        if count >= 5 and most_common_emotion != self.last_negative_emotion:
                             logger.info(
                                 f"Sustained negative emotion detected: {most_common_emotion} with ratio {ratio:.2f}")
                             self.save_alert(face_img, most_common_emotion, confidence)
@@ -401,7 +421,7 @@ class EmotionDetectorThread(threading.Thread):
         # Release CUDA memory if using GPU
         if hasattr(self, 'has_cv_cuda') and self.has_cv_cuda:
             cv2.cuda.deviceReset()
-        
+
         # Clear PyTorch cache if using CUDA
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

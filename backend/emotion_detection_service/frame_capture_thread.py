@@ -2,27 +2,28 @@ import threading
 import cv2
 import time
 
+
 class FrameCaptureThread(threading.Thread):
     def __init__(self, src, cam_id):
         super().__init__()
         self.src = src
         self.cam_id = cam_id
-        
+
         # Set buffer size to 1 to always get the latest frame
         self.capture = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
         self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        
+
         # Try to set optimal resolution and FPS
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)  # Lower resolution for faster processing
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self.capture.set(cv2.CAP_PROP_FPS, 15)  # Lower FPS for RTSP streams to reduce load
-        
+
         self.frame_lock = threading.Lock()
         self.latest_frame = None
         self.running = True
         self.failure_count = 0
         self.max_failures = 20
-        
+
         # Add frame skipping for performance
         self.frame_count = 0
         self.process_every_n_frames = 2  # Process every 2nd frame

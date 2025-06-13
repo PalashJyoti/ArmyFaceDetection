@@ -15,6 +15,7 @@ JWT_EXP_DELTA_SECONDS = 3600
 
 blacklisted_tokens = set()
 
+
 def create_jwt(user):
     payload = {
         'user_id': user.id,
@@ -55,6 +56,7 @@ def jwt_required(f):
 
         return f(*args, **kwargs)
     return decorated
+
 
 @auth_bp.route('/signup', methods=['POST'])
 def signup():

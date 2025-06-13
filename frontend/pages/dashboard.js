@@ -68,7 +68,7 @@ const Dashboard = () => {
   const [pieData, setPieData] = useState([]);
   const [timelineData, setTimelineData] = useState([]);
   const [avgIntensityData, setAvgIntensityData] = useState([]);
-  const [timeRange, setTimeRange] = useState('5min');
+  const [timeRange, setTimeRange] = useState('overall');
   const [loadingCameras, setLoadingCameras] = useState(false);
   const [loadingAnalytics, setLoadingAnalytics] = useState(false);
   const [piePercentageData, setPiePercentageData] = useState([]);
@@ -228,6 +228,7 @@ const Dashboard = () => {
   }
 
   useEffect(() => {
+    setIsClient(true);
     const fetchAnalytics = async () => {
       setLoadingAnalytics(true);
       try {
@@ -380,6 +381,7 @@ const Dashboard = () => {
                   <option value="30min">Last 30 minutes</option>
                   <option value="1hr">Last 1 hour</option>
                   <option value="today">Today</option>
+                  <option value="overall">Overall</option>
                 </select>
               </div>
 
