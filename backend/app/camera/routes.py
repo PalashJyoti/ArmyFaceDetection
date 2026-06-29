@@ -150,6 +150,7 @@ def get_cameras():
 
     return jsonify([camera.to_dict() for camera in cameras])
 
+
 @camera_bp.route('/api/detection-analytics', methods=['GET'])
 def get_detection_analytics():
     """

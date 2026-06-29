@@ -17,6 +17,7 @@ const AdminPanel = () => {
   const [newCameraSrc, setNewCameraSrc] = useState('');
   const [isCameraLoading, setIsCameraLoading] = useState(true);
   const [feedTimestamp, setFeedTimestamp] = useState(Date.now());
+  const [feedError, setFeedError] = useState('');
   
   const feedIntervalRef = useRef(null);
   const imgRef = useRef(null);
@@ -165,11 +166,11 @@ const AdminPanel = () => {
 
   const handleImageError = (e) => {
     console.error('Camera feed error:', e);
-    // Optionally show a placeholder or error message
+    setFeedError('Unable to load live feed from this camera right now.');
   };
 
   const handleImageLoad = () => {
-    // Image loaded successfully
+    setFeedError('');
     console.log('Camera feed loaded');
   };
 
@@ -223,6 +224,7 @@ const AdminPanel = () => {
                 <div className="w-full max-w-4xl mx-auto">
                   <div className="relative w-full bg-black rounded-lg mb-4 overflow-hidden shadow-xl">
                     <img
+                      key={selectedCameraId}
                       ref={imgRef}
                       src={`${process.env.NEXT_PUBLIC_FLASK_MAIN_API_BASE_URL}/api/camera_feed/${selectedCameraId}?t=${feedTimestamp}`}
                       alt="Live Feed"
@@ -231,6 +233,14 @@ const AdminPanel = () => {
                       onLoad={handleImageLoad}
                       style={{ opacity: 1 }}
                     />
+                    {feedError ? (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/80 text-white text-center px-4">
+                        <div>
+                          <p className="text-lg font-semibold">Live feed unavailable</p>
+                          <p className="text-sm text-gray-300 mt-2">{feedError}</p>
+                        </div>
+                      </div>
+                    ) : null}
                     {/* Loading indicator overlay */}
                     <div className="absolute top-4 right-4 bg-black/70 text-white px-3 py-1 rounded-full text-sm">
                       Live
